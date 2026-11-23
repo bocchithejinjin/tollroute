@@ -30,7 +30,12 @@ ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
 # スマホから Tailscale 経由で使うときの PC の名前（例: my-pc.tail1234.ts.net）。docs/remote-access.md
 EXTRA_ALLOWED_HOSTS = [h.strip() for h in os.environ.get("EXTRA_ALLOWED_HOSTS", "").split(",") if h.strip()]
 ALLOWED_HOSTS += EXTRA_ALLOWED_HOSTS
-CSRF_TRUSTED_ORIGINS = [f"https://{h}" for h in EXTRA_ALLOWED_HOSTS]
+# 先頭が「.」のもの（例: .trycloudflare.com）は、そのドメインのサブドメインすべてを許可する
+CSRF_TRUSTED_ORIGINS = [f"https://*{h}" if h.startswith(".") else f"https://{h}" for h in EXTRA_ALLOWED_HOSTS]
+# 管理画面は既定では DEBUG のときだけ有効（公開中は外から開けない）
+ENABLE_ADMIN = os.environ.get("ENABLE_ADMIN", "true" if DEBUG else "false").strip().lower() in {"1", "true", "yes", "on"}
+# 検索 API の回数制限（1 つの接続元から 1 分あたり）
+SEARCH_RATE_LIMIT_PER_MIN = int(os.environ.get("SEARCH_RATE_LIMIT_PER_MIN", "30"))
 # tailscale serve は HTTPS を受けて HTTP で中継する
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if EXTRA_ALLOWED_HOSTS else None
 
