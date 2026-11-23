@@ -8,8 +8,12 @@ docs/algorithm-selection.md の比較で採用した方法。所要時間と料�
   時刻の早さで比べても正しい（同じ IC に戻れないと、まねできないことがある）。
 - 料金が切り替わる時刻（深夜割引の 0 時・4 時、アクアラインの時間帯、料金改定日など）を
   これから先にまたぐ可能性があるときは、「早く着く」ことを理由に捨てない（遅いほうが安くなることがある）。
+  首都高は後続ランの入口、時刻で料金が変わる料金所は通過時刻だけを調べる（判定が起き得る時刻の範囲に
+  境目がなければ比べてよい）。NEXCO は従来どおり、T までに境目があれば比べない。
 - 料金所で確定した金額（pending）と、ランの距離（区分ごと）も比べる。距離は「多いほど高い」ことが前提で、
-  料金プールの側でその前提を確かめている（tariffs.NexcoPool.check_monotone）。
+  料金プールの側でその前提を確かめている（tariffs.NexcoPool.validate）。
+- 目的地までの時間下限 h と、これから通る料金所の最低額の和を下限にして、完成案（一般道案を含む）に
+  時間・料金とも及ばないラベルを捨てる。浮動小数点の加算順の違いは時間下限を誤差の分だけ小さくして吸収する。
 
 入力の一般道の所要時間（出発地→各 IC、各 IC→目的地）は、ルート検索エンジンで求めて渡す。
 """
@@ -267,9 +271,11 @@ class Searcher:
         def dominates(a: _Label, b: _Label) -> bool:
             if a.t > b.t + (0 if exact else EPS) or a.closed + a.pending > b.closed + b.pending:
                 return False
+            # 厳密モードでは距離も誤差を許さずに比べる（わずかに長い距離で料金の丸めが変わり得るため）
+            tol = 0.0 if exact else EPS
             bk = dict(b.km)
             for k, v in a.km:
-                if v > bk.get(k, 0.0) + EPS:
+                if v > bk.get(k, 0.0) + tol:
                     return False
             if a.t == b.t or not exact:
                 return True
