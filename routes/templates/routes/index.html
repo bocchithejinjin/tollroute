@@ -6,6 +6,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>高速代の予算内最速ルート</title>
+  {% with description="出発地・目的地・出発日時と高速代の予算から、ETC割引を考慮してルートを最大5件提案します。横浜〜新宿周辺のデモです。" %}
+  <meta name="description" content="{{ description }}">
+  <meta property="og:title" content="高速代の予算内最速ルート | tollroute">
+  <meta property="og:description" content="{{ description }}">
+  {% endwith %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="tollroute">
+  <meta property="og:locale" content="ja_JP">
+  <meta property="og:url" content="{{ request.scheme }}://{{ request.get_host }}{% url 'index' %}">
+  {% static 'routes/link-preview.png' as preview_image %}
+  <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{{ preview_image }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="tollroute：高速代の予算内で最速ルートを検索。横浜〜新宿周辺のデモ。">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@800&family=Zen+Maru+Gothic:wght@500;700;900&display=swap">

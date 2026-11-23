@@ -4,6 +4,19 @@ def test_index(client):
     assert "予算内最速ルート" in res.content.decode()
 
 
+def test_index_link_preview_uses_public_origin(client, settings):
+    settings.ALLOWED_HOSTS = [".trycloudflare.com"]
+    settings.SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    response = client.get("/?source=chat", HTTP_HOST="demo.trycloudflare.com", HTTP_X_FORWARDED_PROTO="https")
+
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert 'property="og:title" content="高速代の予算内最速ルート | tollroute"' in html
+    assert 'property="og:description"' in html
+    assert 'property="og:url" content="https://demo.trycloudflare.com/"' in html
+    assert 'property="og:image" content="https://demo.trycloudflare.com/static/routes/link-preview.png"' in html
+
+
 def test_search_weekday_noon(client):
     res = client.get("/api/search/", {"origin": "yokohama", "dest": "shinjuku",
                                       "depart": "2026-11-25T12:00", "budget": "1000"}, HTTP_HOST="localhost")
