@@ -33,12 +33,15 @@
     <div class="page-width masthead-inner">
       <h1><span class="road-mark" aria-hidden="true"></span>高速代の予算内最速ルート</h1>
       <div class="masthead-tools">
-        <span class="estimate">料金・時間は概算</span>
+        <span class="development-status">開発中</span>
       </div>
     </div>
   </header>
 
   <main class="page-width">
+    <p class="notice warning coverage-notice">
+      横浜〜新宿周辺のデモ道路網に対応しています。料金・所要時間は概算です。公開デモの URL は変わる場合があります。
+    </p>
     <details class="panel trip" id="trip">
       <summary class="trip-summary">
         <span class="trip-points">
@@ -87,10 +90,7 @@
           </div>
         </div>
         <button class="button primary search-button" type="submit">ルートを探す</button>
-        <div class="form-footer">
-          <span>対応範囲は横浜〜新宿の周辺です。</span>
-          <button id="forget" class="text-button" type="button" hidden>保存した地点・予算を消す</button>
-        </div>
+        <button id="forget" class="text-button forget-button" type="button" hidden>保存した地点・予算を消す</button>
       </form>
     </details>
 

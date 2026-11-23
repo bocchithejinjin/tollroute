@@ -1,7 +1,10 @@
 def test_index(client):
     res = client.get("/", HTTP_HOST="localhost")
     assert res.status_code == 200
-    assert "予算内最速ルート" in res.content.decode()
+    html = res.content.decode()
+    assert "予算内最速ルート" in html
+    assert ">開発中</span>" in html
+    assert "横浜〜新宿周辺のデモ道路網に対応しています。料金・所要時間は概算です。" in html
 
 
 def test_index_link_preview_uses_public_origin(client, settings):
