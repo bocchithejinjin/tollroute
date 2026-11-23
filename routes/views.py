@@ -9,6 +9,7 @@ from django.views.decorators.http import require_GET
 from engine.search import Searcher, pick
 
 from . import demo
+from .ratelimit import limited
 from .geocode import STATION_LEVEL, GeocoderUnavailable, geocode
 from .travel import EstimateProvider, TravelTimeError, get_provider
 
@@ -203,6 +204,7 @@ def choose_options(front, budget: int, n: int = 5):
 
 
 @require_GET
+@limited
 def api_search(request):
     try:
         o_name, *o = _point(request.GET.get("origin", "yokohama"))

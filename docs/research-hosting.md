@@ -373,3 +373,225 @@
 - OSRM ツール: <https://project-osrm.org/docs/v26.5.0/tools>
 - OSRM discussion #6840: <https://github.com/Project-OSRM/osrm-backend/discussions/6840>
 - イメージのアーキテクチャ: `docker buildx imagetools inspect` で直接確認（`ghcr.io/project-osrm/osrm-backend:26.11.0-debian`、`postgis/postgis:17-3.5`、`imresamu/postgis:17-3.5`、`python:3.12-trixie`）
+
+---
+
+## 6. PaaS に絞った比較（2026-11-23 追記）
+
+所有者の希望で、VM ではなく PaaS（コンテナを置くだけで動くサービス）に絞って比べ直した。
+
+- 価格・条件はすべて 2026-11-23 に公式ページで見たもの。読み取れなかったもの、公式以外（検索結果の抜粋やコミュニティ投稿）でしか見ていないものは **未確認** と書いた。
+- 為替は 1 USD ≈ 150 円（目安、**未確認**）。
+- 月額は「30 日間ずっと起動」で計算した。スリープさせれば下がる。
+
+### 6.1 前提: 2 つの構成
+
+| | 構成 A（フル） | 構成 B（軽量） |
+|---|---|---|
+| PaaS に置くもの | web（Django + gunicorn）、osrm、db（PostGIS） | web だけ |
+| web の RAM | 0.5〜1 GB | 0.5〜1 GB |
+| 一般道の所要時間 | OSRM（`osrm-routed`、関東 MLD 3.1 GB）。全読み込みで RAM 2.5〜3 GB、`--mmap` ならもっと少なくてよい | 外部 API（OpenRouteService の無料枠） |
+| OSRM のデータ置き場 | ボリューム（約 5 GB）か、イメージに焼く | 不要 |
+| DB | PostGIS（PaaS 上かマネージド） | 無料のマネージド DB（Neon / Supabase）。SQLite も検討（下記） |
+| jageocoder 辞書（約 1〜1.4 GB、読み取り専用） | ボリュームかイメージに焼く | イメージに焼く（イメージは約 2.5〜3 GB になる見込み、**未確認**）か、別の方法に替える |
+
+**構成 B にする場合のアプリ側の作業**（コードを見て確認した）:
+
+- **ORS 用の実装がまだない**。`routes/travel.py` の `TRAVEL_TIME_PROVIDER` は今 `osrm` と `estimate` だけ。ORS を使うなら `ors` の実装を足す必要がある。
+  - ORS 無料（Standard）プランの上限は Directions **2,000 回/日・40 回/分**、Matrix **500 回/日・40 回/分**（公式ページ <https://openrouteservice.org/plans/> の内容を検索結果の抜粋で確認。ページ本文はリダイレクト先で読めず **未確認**）。
+  - 1 リクエストの上限は Matrix 3,500 地点組（50×50）、Directions は 6,000 km まで（<https://giscience.github.io/openrouteservice/hosted-api-restrictions>）。
+  - 有料道路を避けるオプション（`avoid_features: tollways`）が使えるかは今日のページでは確認できず **未確認**。
+  - 出発地・目的地の座標が外部（HeiGIT）に送られる。今の「外部に何も送らない」方針（`routes/geocode.py` の説明）とは変わるので、所有者の了解が必要。
+  - 少人数の利用なら 2,000 回/日で足りる見込み。上限を超えたら `estimate` に切り替える作りにする。
+- **SQLite について**: `config/settings.py` は `DATABASE_URL` を `engine="django.contrib.gis.db.backends.postgis"` 固定で読んでいる。
+  - 空間クエリはまだ使っていないので SQLite でも動くはず。ただし settings の変更が必要（`django.contrib.gis` を外して `sqlite3` にする。GIS を残すなら SpatiaLite）。
+  - ボリュームのない PaaS では、SQLite のファイルは再デプロイで消える（管理ユーザーなどが消える）。**無料のマネージド Postgres（Supabase 東京など）を使うほうが手間が少ない**。
+- **jageocoder 辞書**: イメージに焼くのがいちばん簡単。イメージが大きくなるので、各 PaaS のイメージサイズ上限（下記）に注意。
+  - jageocoder にはリモートサーバーに問い合わせるモード（`jageocoder/remote.py`、`init(url=…)`）もあるが、使える公開サーバーとその利用条件は **未確認**。
+
+### 6.2 サービス別
+
+#### 6.2.1 Fly.io（東京 nrt）
+
+出典: <https://docs.fly.io/about/pricing>、<https://docs.fly.io/reference/regions>、<https://docs.fly.io/volumes/overview/>、<https://docs.fly.io/launch/autostop-autostart/>、<https://docs.fly.io/mpg>（2026-11-23 閲覧）
+
+- **料金（iad/ewr の基準価格・月額）**: shared-cpu-1x 256 MB $2.19、512 MB $3.69、1 GB $6.70、shared-cpu-2x 2 GB $13.39、performance-2x 4 GB $66。追加 RAM は $6/GB/月。
+  - リージョン差: 1 GB の例で iad $6.70、fra $7.73、sin $8.50（約 1.27 倍）。**nrt の価格は未確認**。下の試算は iad 価格で、nrt はそれより 1〜3 割高い可能性がある。
+- **無料枠**: カードなしは $1 のクレジットだけ。カードを登録すると Free プランで **毎月 $5 分の利用**が付く（Machine は 3 台まで）。
+- **ボリューム**: $0.15/GB/月（停止中も課金）。既定 1 GB、**最大 500 GB**。1 ボリュームは 1 Machine にだけ付く。日次スナップショット（既定 5 日保持）。ビルド中と `release_command` の一時 Machine には付かない。
+- **イメージサイズ**: 公式ドキュメントでは確認できず。コミュニティの告知では上限が 2 GB から約 8 GB に引き上げられた（**未確認**）。<https://community.fly.io/t/docker-image-size-limit-raised-from-2gb-to-8gb/14749>
+- **スリープ**: `auto_stop_machines = "stop"/"suspend"` と `auto_start_machines` で、アクセスがないと止まり、リクエストで起きる。**止まっている間は CPU と RAM は無料**で、rootfs の $0.15/GB/月とボリュームだけかかる。
+- **東京**: **nrt あり**（Managed Postgres も nrt 可）。
+- **Docker Compose**: 使えない。web / osrm / db を別々の Fly App にして、プライベートネットワーク（`<app>.internal` や Flycast）でつなぐ。
+- **Managed Postgres（MPG）**: Basic（Shared-2x・1 GB）**$38/月** + ストレージ $0.28/GB。**PostGIS は作成時に有効にすれば使える**。
+  - 料金ページの Free プランの説明には「$4 の Managed Postgres Developer プラン」が出てくるが、MPG のページの表には載っていない。**未確認**。
+- **Claude のデプロイ手段**: `flyctl` だけで完結する（`fly launch --no-deploy`、`fly deploy`、`fly volumes create`、`fly secrets set`、`fly sftp shell` でデータを送る、`fly mpg create`）。
+- **構成 A の試算（月額、iad 価格）**:
+  - web: shared-cpu-1x 1 GB $6.70
+  - osrm: shared-cpu-2x 4 GB（2 GB $13.39 + 追加 2 GB $12）= $25.39。`--mmap` で 2 GB にすれば $13.39
+  - db: postgis イメージを自前の App で動かす（shared-cpu-1x 1 GB $6.70 + ボリューム 3 GB $0.45）。MPG にすると $38 + ストレージ
+  - ボリューム: osrm 5 GB $0.75、辞書 2 GB $0.30（イメージに焼くなら不要）
+  - **合計 約 $28〜40（≈4,200〜6,000 円）**。Free プランの $5 を引くと約 $23〜35。nrt 価格はこれより高い可能性あり（**未確認**）。MPG にすると約 $60〜70。
+- **構成 B の試算**: web 1 GB（$6.70）を auto stop にすると、使った時間だけの課金 + 停止中の rootfs（3 GB で約 $0.45）。**少人数なら $5 の無料分にほぼ収まる見込み（≈0〜1,000 円）**。DB は Supabase（東京）か Neon の無料枠。
+  - 注意: 止まった Machine の起動に数秒かかる。起動時間は **未確認**（jageocoder 辞書の読み込み込みで実測が必要）。
+
+#### 6.2.2 Render
+
+出典: <https://render.com/pricing.md>、<https://render.com/docs/free>、<https://render.com/docs/disks>、<https://render.com/docs/regions>、<https://render.com/docs/postgresql-extensions>、<https://render.com/docs/blueprint-spec>（2026-11-23 閲覧。`render.com/pricing` の HTML は本文が取れず、同じ内容の `pricing.md` で確認）
+
+- **料金（月額）**: プラン ID が 2026 年 8 月から変わった（検索結果の抜粋による、**未確認**）。
+  - web / private service / worker: free（512 MB）$0、0.5c-512mb $7、1c-2g $25、**2c-4g $85**、2c-8g $135。
+  - ディスク $0.25/GB/月。
+  - ワークスペース: Hobby $0（帯域 5 GB/月）、Pro $25/月（帯域 25 GB/月）。超過は $0.15/GB。
+- **無料枠**: web は 15 分アクセスがないと止まり、起動に約 1 分。月 750 時間。**ディスクは付けられない**。無料 Postgres は 1 GB・**30 日で期限切れ**（その後 14 日の猶予）。
+- **ディスク**: 有料の web / private service / worker に付けられる。最大サイズはページに記載なし（**未確認**）。1 インスタンス限定、ゼロダウンタイムデプロイ不可、ビルド中は使えない、増やせるが減らせない、日次スナップショット 7 日。
+- **イメージサイズ**: 公式ドキュメントに記載が見つからず **未確認**。
+- **リージョン**: オレゴン、オハイオ、バージニア、フランクフルト、**シンガポール**。**日本はない**。
+- **Postgres**: free $0（256 MB RAM・1 GB・30 日）、0.1c-256mb $6、0.5c-1g $19、1c-2g $40。ストレージ $0.30/GB。**PostGIS 対応**（PostgreSQL 13 以降で `CREATE EXTENSION`）。
+- **Docker Compose**: 使えない。`render.yaml`（Blueprint）に web / private service（osrm）/ databases を書く。`disk:`（`mountPath`、`sizeGB`）も書ける。
+- **Claude のデプロイ手段**: `render.yaml` を Git リポジトリに置いて、所有者がダッシュボードで Blueprint を一度つなぐ。以降は push で自動デプロイ。Render CLI（v2.7.0 以降）で Blueprint の検証ができる。CLI で Blueprint を適用するコマンドはページで見つからず **未確認**（Render API はある）。
+- **構成 A の試算**: web 0.5c-512mb $7（512 MB で jageocoder が動くかは **未確認**、だめなら $25）+ osrm 2c-4g $85（`--mmap` で 1c-2g $25）+ ディスク 7 GB $1.75 + Postgres 0.5c-1g $19 + ストレージ → **約 $53〜113（≈8,000〜17,000 円）**。
+- **構成 B の試算**: 無料の web（スリープあり・512 MB）で **$0**、常時起動なら $7。DB は無料 Postgres が 30 日で消えるので Neon / Supabase を使う。
+
+#### 6.2.3 Railway
+
+出典: <https://docs.railway.com/reference/pricing/plans>、<https://docs.railway.com/reference/regions>、<https://docs.railway.com/reference/app-sleeping>、<https://docs.railway.com/guides/volumes>、<https://docs.railway.com/guides/cli>（2026-11-23 閲覧）
+
+- **プラン**:
+
+  | プラン | 月額 | 含まれる利用 | サービスあたり RAM 上限 | ボリューム上限 | イメージサイズ上限 |
+  |---|---|---|---|---|---|
+  | Free | $0 | 約 $1 | 0.5 GB | 0.5 GB | 4 GB |
+  | **Hobby** | **$5** | $5 | 48 GB | **5 GB** | **100 GB** |
+  | Pro | $20 | $20 | 1 TB | 1 TB | 無制限 |
+
+- **従量単価**: RAM $10/GB/月、vCPU $20/vCPU/月、ボリューム $0.15/GB/月、外向き $0.05/GB、ビルド無料。**使った分だけ**課金（割り当てではない）。
+- **スリープ（Serverless）**: 外向き通信が 5 分止まると 5〜10 分後に寝る。最初のリクエストで起きる（最初の 1 回は 502 になることがある）。寝ている間の課金の詳細はページに記載なし（**未確認**）。
+- **リージョン**: US West、US East、EU West、**シンガポール**。**日本はない**。
+- **Docker Compose**: compose ファイルをキャンバスにドロップしてインポートできる（すべての設定には対応しない。2.7 節）。1 プロジェクトの中に複数サービスを並べ、プライベートネットワークでつなぐ。
+- **イメージに焼ける**: Hobby でもイメージ 100 GB まで OK なので、**OSRM（3.1 GB）と辞書をイメージに焼けばボリューム 5 GB の制限を避けられる**。
+- **PostGIS**: Railway の Postgres テンプレートで PostGIS が使えるかは **未確認**。`postgis/postgis` イメージをサービスとして置き、ボリュームを付ければ動くはず。
+- **Claude のデプロイ手段**: `railway login --browserless`（または `RAILWAY_TOKEN`）、`railway init`、`railway up`、`railway add --database postgres`、`railway volume add`、`railway variable set KEY=value`。
+- **構成 A の試算**: RAM 使用量 web 0.7 + osrm 3 + db 0.3 ≈ 4 GB → $40、CPU（平均 0.1 vCPU と仮定）$2、ボリューム 1 GB $0.15 → 約 $42。Hobby の $5 はこの中に含まれるので **合計 約 $42（≈6,300 円）**。`--mmap` で常駐が減れば $25〜30（mmap のページキャッシュが課金対象のメモリに数えられるかは **未確認**）。
+- **構成 B の試算**: web 0.5 GB 常駐で $5 + CPU 少し → **約 $5〜7（≈750〜1,050 円）**。Serverless で寝かせればもっと下がる見込み。Free（0.5 GB・$1 分）では常時起動は足りない見込み。
+
+#### 6.2.4 Koyeb
+
+出典: <https://www.koyeb.com/pricing>、<https://www.koyeb.com/docs/reference/instances>、<https://www.koyeb.com/docs/reference/volumes>（2026-11-23 閲覧）
+
+- **料金**: Pro $29/月（コンピュート $10 分を含む）。インスタンス（月額）: small 1 GB $10.71、large 4 GB $42.85、eco-small 1 GB $5.36、**eco-large 4 GB $21.43**。外向き 1 TB/月まで込み、超過はアジア $0.04/GB。
+  - 有料インスタンスを使うのに Pro の月額が必須かは **未確認**。
+- **無料インスタンス**: 0.1 vCPU・512 MB・2 GB SSD、1 組織 1 台、**フランクフルトかワシントンのみ**、ボリューム不可、**1 時間アクセスがないとゼロにスケール**。
+- **リージョン**: Eco はワシントン・フランクフルト・**シンガポール**。標準インスタンスのリージョン一覧、東京があるかは **未確認**。
+- **ボリューム**: 1〜10 GB、**ワシントン/フランクフルトのみ**、パブリックプレビュー（「テスト用途向け」）、eco と free には付かない。
+- **Postgres**: 無料（0.25 vCPU・1 GB RAM・1 GB、月 5 時間）、Small $29.76/月〜、ストレージ $0.50/GB/月。リージョンはワシントン・フランクフルト・シンガポール。PostGIS 対応は **未確認**。
+- **イメージサイズ上限**: **未確認**。
+- **Docker Compose**: 使えない（サービスを分ける）。
+- **Claude のデプロイ手段**: `koyeb` CLI / API（コマンドの詳細は今回は **未確認**）。
+- **構成 A の試算**（シンガポール、データはイメージに焼く。eco-large のディスクは 20 GB）: osrm eco-large $21.43 + web eco-small $5.36 + DB は Neon 無料 → $27。Pro 必須なら $29 + ($27 − $10) = **約 $27〜46**。シンガポールではボリュームが使えないので自前の PostGIS は置けない。
+- **構成 B の試算**: 無料インスタンス（フランクフルト/ワシントン、512 MB）で **$0**。日本から遠い。シンガポールの eco-small なら $5.36（+ プラン料の可能性）。
+
+#### 6.2.5 Google Cloud Run（東京 asia-northeast1）
+
+出典: <https://cloud.google.com/run/pricing>（本文はまた取得できず。単価は検索結果の抜粋で見たもので **未確認**）、<https://docs.cloud.google.com/run/docs/configuring/services/memory-limits>、<https://docs.cloud.google.com/run/docs/container-contract>、<https://docs.cloud.google.com/run/docs/configuring/services/cloud-storage-volume-mounts>、<https://docs.cloud.google.com/free/docs/free-cloud-features>（2026-11-23 閲覧）
+
+- **単価（Tier 1。東京は Tier 1 とされる。どちらも検索結果の抜粋で **未確認**）**:
+  - リクエスト課金: $0.000024/vCPU 秒、$0.0000025/GiB 秒、$0.40/100 万リクエスト。無料枠 180,000 vCPU 秒・360,000 GiB 秒・200 万リクエスト/月（無料枠は 2.2 節で公式確認済み）。
+  - インスタンス課金（常時 CPU）: $0.000018/vCPU 秒、$0.000002/GiB 秒。無料枠 240,000 vCPU 秒・450,000 GiB 秒。
+- **メモリ**: 最大 32 GiB。1 vCPU で 4 GiB まで、2 vCPU で 8 GiB まで。
+- **ファイルシステム**: 書き込み先は**メモリ上**（書いた分がメモリを使う）。永続ディスクはない。
+  - Cloud Storage のボリュームマウント（FUSE）はあるが、完全な POSIX ではない。OSRM のファイルを FUSE 越しに mmap するのは遅いと考えられる（**未確認**）。
+- **イメージサイズ上限**: ドキュメントに記載がなく **未確認**。イメージ内のファイル（辞書など）がメモリを使うかどうかも **未確認**。
+- **スリープ**: 既定でゼロにスケール（リクエストがないと 0 台）。最小インスタンス数を 1 以上にすると常時起動。
+- **DB**: Cloud SQL は無料枠がない（2.2 節、**未確認**）。Neon / Supabase を使う。
+- **Docker Compose**: 使えない（サービスを分ける）。
+- **Claude のデプロイ手段**: `gcloud run deploy --source .`（または `gcloud builds submit` + `gcloud run deploy --image …`）、`gcloud run services update`。`gcloud` だけで完結する。
+- **構成 A の試算**: osrm を 1 vCPU・4 GiB で常時起動（インスタンス課金）にすると、vCPU 259 万秒 × $0.000018 ≈ $46.7 + 4 GiB × 259 万秒 × $0.000002 ≈ $20.7 − 無料枠約 $5 → **約 $62（≈9,300 円）+ DB**。ゼロスケールにすると 3 GB の読み込みで起動が遅すぎる見込み（**未確認**）。**構成 A には不向き**。
+- **構成 B の試算**: web（1 vCPU・1 GiB）をゼロスケール + リクエスト課金なら、少人数の利用は無料枠内で **$0** の見込み。Artifact Registry のイメージ保管料（約 3 GB）が少しかかる（単価 **未確認**）。コールドスタートで辞書を読み込むので最初の応答が遅い（秒数は **未確認**）。
+
+#### 6.2.6 Heroku（参考）
+
+出典: <https://www.heroku.com/pricing/>（2026-11-23 閲覧）
+
+- Eco $5（0.5 GB、30 分でスリープ）、Basic $7（0.5 GB）、Standard-2X $50（1 GB）、Performance-M $250（2.5 GB）。無料枠はない。
+- Postgres Essential-0 $5（1 GB）、Essential-1 $9。PostGIS の可否は **未確認**。
+- 東京リージョン（Common Runtime）は料金ページに記載がなく **未確認**。dyno に永続ディスクはない。
+- **構成 A は RAM 2.5 GB で $250 なので現実的でない**。構成 B は Basic $7 + Essential-0 $5 = $12 だが、他より高く、東京もない（**未確認**）ので**候補から外す**。
+
+### 6.3 DB（構成 B 用、構成 A でも DB を外に出す場合）
+
+| サービス | 無料枠 | PostGIS | 日本/アジア | 止まる条件 | 有料の最小 |
+|---|---|---|---|---|---|
+| **Supabase** | 500 MB、アクティブ 2 プロジェクト（2.12 節） | 拡張として有効化できる。ページに**プランの制限の記載なし**（無料で使えると読めるが明記はなく **未確認**） | **東京（ap-northeast-1）あり** | 1 週間アクセスがないと一時停止 | Pro $25/月 |
+| **Neon** | 1 GB/プロジェクト（全体 20 GB）、100 CU 時間/月、カード不要 | **対応** | 東京なし。**シンガポール** | 5 分アイドルで停止（無効化不可。次の接続で起動） | Launch: 従量（$0.106/CU 時間、$0.35/GB 月） |
+| Fly Managed Postgres | なし（$4 Developer プランの記載があるが **未確認**） | **対応**（作成時に有効化） | **nrt あり** | — | Basic $38/月 + $0.28/GB |
+| Render Postgres | 1 GB、**30 日で期限切れ** | **対応** | シンガポール | — | $6/月（256 MB） |
+| Koyeb Postgres | 1 GB、月 5 時間 | **未確認** | シンガポール | ゼロスケール | $29.76/月 |
+
+出典: <https://supabase.com/docs/guides/platform/regions>、<https://supabase.com/docs/guides/database/extensions/postgis>、<https://neon.com/pricing>、<https://neon.com/docs/introduction/regions>、<https://docs.fly.io/mpg>、<https://render.com/docs/postgresql-extensions>、<https://render.com/docs/free>（2026-11-23 閲覧）
+
+- **構成 B の DB は Supabase（東京）がいちばん近い**。今の用途（admin とヘルスチェックだけ）なら 500 MB で十分。1 週間使わないと止まるので、止まったらダッシュボードで再開する（または定期的にアクセスする）。
+- Neon はシンガポールだが、5 分で止まって自動で起きるので放置しても困りにくい。どちらでもよい。
+
+### 6.4 一覧表（2026-11-23 時点）
+
+| サービス | A の月額（試算） | B の月額（試算） | 無料枠 | ボリューム | イメージ上限 | 1 台の RAM | スリープ | 日本/アジア | Compose | Claude の CLI |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Fly.io** | **$28〜40**（iad 価格。nrt は**未確認**） | **$0〜5** | カード登録で月 $5 分 | ○ 最大 500 GB、1 Machine に 1 つ | 約 8 GB（**未確認**） | 256 MB〜（追加 RAM で増やせる） | auto stop/start（停止中は CPU・RAM 無料） | **東京 nrt** | ×（App に分割） | `flyctl` |
+| Render | $53〜113 | $0（スリープ）〜$7 | web 750 時間、DB 30 日 | ○ 有料のみ（最大は**未確認**） | **未確認** | 512 MB〜 | 無料は 15 分で停止、起動約 1 分 | シンガポール | ×（Blueprint） | Blueprint + CLI / API |
+| Railway | 約 $42（mmap で $25〜30） | $5〜7 | 約 $1/月 | ○ Hobby 5 GB / Pro 1 TB | Hobby 100 GB | 使った分だけ（上限 48 GB） | Serverless（5〜10 分で停止） | シンガポール | △（インポート） | `railway` |
+| Koyeb | $27〜46（シンガポール、焼き込み） | $0（米欧）〜$5.36 | 512 MB 1 台（米欧のみ） | △ プレビュー、1〜10 GB、米欧のみ | **未確認** | 256 MB〜 | 無料は 1 時間でゼロスケール | シンガポール（eco） | × | `koyeb` |
+| Cloud Run | 約 $62 + DB | **$0**（無料枠内の見込み） | 毎月の無料枠あり | ×（メモリ上のみ、GCS FUSE） | **未確認** | 最大 32 GiB | 既定でゼロスケール | **東京** | × | `gcloud` |
+| Heroku | 非現実的（2.5 GB で $250） | $12 | なし | × | **未確認** | 0.5〜2.5 GB | Eco は 30 分 | **未確認** | × | `heroku` |
+
+### 6.5 おすすめ
+
+| 区分 | おすすめ | 理由 |
+|---|---|---|
+| **構成 A（フル）に最適** | **Fly.io（nrt）** | 東京にあり、ボリュームが最大 500 GB、RAM を GB 単位で足せる。web / osrm / db の 3 App が Free プランの 3 台に収まり、約 $28〜40/月。`flyctl` だけで Claude が完結できる。次点は Railway（イメージ 100 GB に焼けるが、シンガポールで RAM が割高） |
+| **構成 B（軽量）に最適** | **Fly.io（nrt）+ Supabase（東京）**。次点は Cloud Run（東京）+ Supabase | どちらも東京・ほぼ 0 円。Fly は辞書入りの大きいイメージでも動かしやすく、あとで構成 A に広げやすい。Cloud Run は無料枠が大きいが、コールドスタートとイメージ上限が **未確認** |
+| **総合** | **Fly.io（nrt）。まず構成 B で始め、必要になったら osrm App を足して構成 A にする** | 1 つのサービス・1 つの CLI で両方の構成に対応できる。ただし nrt の実際の単価と、イメージサイズ上限は申し込み後に `fly` で確認すること（**未確認**） |
+
+**構成 B の注意（再掲）**: ORS 用の `TRAVEL_TIME_PROVIDER` の実装が要る。座標を外部に送ることになる。ORS が使えないときは `estimate` に落ちる。
+
+### 6.6 総合おすすめ（Fly.io nrt）のデプロイ手順の概要
+
+役割分担: **所有者** はアカウント作成・カード登録・Supabase のプロジェクト作成（東京）。**Claude** は `flyctl` で以降の作業。
+
+**構成 B（最初の段階）**
+
+1. **所有者**: Fly.io に登録してカードを登録する（月 $5 の無料分を得るため）。Supabase で東京リージョンのプロジェクトを作り、接続文字列を Claude に渡す。ORS の API キーを取る。
+2. **Claude**: `fly auth login`（またはトークン）で接続を確認する。
+3. **Claude**: 本番用の `Dockerfile` を作る（`.devcontainer/Dockerfile` は変更しない）。
+   - コードと jageocoder 辞書をイメージに入れる（`JAGEOCODER_DB2_DIR` を指定）。
+   - gunicorn で起動、`collectstatic` はビルド時。
+   - ORS の provider を `routes/travel.py` に足す（別作業）。
+4. **Claude**: `fly launch --no-deploy --region nrt` で `fly.toml` を作る。
+   - `[http_service]` に `auto_stop_machines = "stop"`、`auto_start_machines = true`、`min_machines_running = 0`。
+   - VM は shared-cpu-1x・1 GB。
+   - `release_command = "python manage.py migrate"`。
+5. **Claude**: `fly secrets set SECRET_KEY=… DATABASE_URL=… ORS_API_KEY=… TRAVEL_TIME_PROVIDER=ors`。
+6. **Claude**: `fly deploy`。イメージが大きすぎて失敗したら、辞書をボリュームに移す（`fly volumes create jgdict --region nrt --size 2` → `fly sftp shell` で転送）。
+7. **Claude**: `curl` で動作確認、`fly logs` と `fly status` で起動時間とメモリを見る。
+
+**構成 A に広げるとき**
+
+8. **Claude**: osrm 用の App を作る（`fly apps create tollroute-osrm`）。
+   - `fly volumes create osrm_data --region nrt --size 5`。
+   - `fly sftp shell` で `data/osrm/kanto` を送る（3.1 GB）。
+   - VM は shared-cpu-2x・4 GB（`--mmap` なら 2 GB）。外には公開せず、web から `tollroute-osrm.internal:5000` で呼ぶ。
+9. **Claude**: DB を Fly に移す場合は、postgis イメージの App + 3 GB ボリューム（または MPG を PostGIS 付きで作成）。Supabase のままでもよい。
+10. **Claude**: web の `TRAVEL_TIME_PROVIDER=osrm` と OSRM の接続先を設定して `fly deploy`。`fly ssh console` で OSRM の実メモリを確かめる。
+
+### 6.7 参考 URL（6 章で追加、すべて 2026-11-23 閲覧）
+
+- Fly.io: <https://docs.fly.io/about/pricing>、<https://docs.fly.io/reference/regions>、<https://docs.fly.io/volumes/overview/>、<https://docs.fly.io/launch/autostop-autostart/>、<https://docs.fly.io/mpg>、<https://docs.fly.io/postgres/>
+- Fly.io イメージサイズ（コミュニティ、**未確認**）: <https://community.fly.io/t/docker-image-size-limit-raised-from-2gb-to-8gb/14749>
+- Render: <https://render.com/pricing.md>、<https://render.com/docs/free>、<https://render.com/docs/disks>、<https://render.com/docs/regions>、<https://render.com/docs/postgresql-extensions>、<https://render.com/docs/blueprint-spec>
+- Railway: <https://docs.railway.com/reference/pricing/plans>、<https://docs.railway.com/reference/regions>、<https://docs.railway.com/reference/app-sleeping>、<https://docs.railway.com/guides/volumes>、<https://docs.railway.com/guides/cli>
+- Koyeb: <https://www.koyeb.com/pricing>、<https://www.koyeb.com/docs/reference/instances>、<https://www.koyeb.com/docs/reference/volumes>
+- Cloud Run: <https://cloud.google.com/run/pricing>（本文取得できず）、<https://docs.cloud.google.com/run/docs/configuring/services/memory-limits>、<https://docs.cloud.google.com/run/docs/container-contract>、<https://docs.cloud.google.com/run/docs/configuring/services/cloud-storage-volume-mounts>
+- Heroku: <https://www.heroku.com/pricing/>
+- Neon: <https://neon.com/pricing>、<https://neon.com/docs/introduction/regions>
+- Supabase: <https://supabase.com/docs/guides/platform/regions>、<https://supabase.com/docs/guides/database/extensions/postgis>
+- OpenRouteService: <https://openrouteservice.org/plans/>（リダイレクト先の本文は取得できず、数値は検索結果の抜粋）、<https://giscience.github.io/openrouteservice/hosted-api-restrictions>

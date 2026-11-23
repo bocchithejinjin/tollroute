@@ -1,9 +1,10 @@
 """本番エンジン（engine/）の性能測定。全国規模に近い架空の道路網で、時間・ラベル数・メモリを測る。
 
-使い方: python explore/scale_engine.py [ノード数...]
+使い方: python explore/scale_engine.py [ノード数...] [--cap 秒] [--out 結果.jsonl]
 """
 from __future__ import annotations
 
+import json
 import math
 import random
 import statistics
@@ -83,47 +84,105 @@ def make(n: int, seed: int):
     return net, pts
 
 
-def run(n: int, seeds=range(3), k: int = 15):
+DEPARTS = (datetime(2026, 11, 25, 12), datetime(2026, 11, 27, 23, 10), datetime(2026, 11, 28, 3, 20))
+
+
+def queries(n: int, seed: int, pts, k: int = 15):
+    """シードごとに、3 つの出発時刻それぞれの (出発, 入口候補, 出口候補, 一般道のみの時間, 下限) を作る。"""
+    rnd = random.Random(seed + 99)
+    out = []
+    for dep in DEPARTS:
+        while True:
+            o = (rnd.uniform(0, SIZE), rnd.uniform(0, SIZE))
+            d = (rnd.uniform(0, SIZE), rnd.uniform(0, SIZE))
+            if 60 < math.dist(o, d) < 200:
+                break
+        loc = lambda p, q: math.dist(p, q) * 1.3 / 30 * 60
+        ids = [f"n{i}" for i in range(n)]
+        ent = sorted(ids, key=lambda nid: loc(o, pts[int(nid[1:])]))[:k]
+        ext = sorted(ids, key=lambda nid: loc(pts[int(nid[1:])], d))[:k]
+        origin = {nid: loc(o, pts[int(nid[1:])]) for nid in ent}
+        dest = {nid: loc(pts[int(nid[1:])], d) for nid in ext}
+        lb = {nid: math.dist(pts[int(nid[1:])], d) / 100 * 60 for nid in ids}
+        out.append((dep, origin, dest, loc(o, d), lb))
+    return out
+
+
+def _one(n, seed, qi, max_labels):
+    """1 検索を測る（グラフ生成と Searcher の前計算は計測区間の外）。"""
+    net, pts = make(n, seed)
+    searcher = Searcher(net, default_tariffs())
+    dep, origin, dest, local, lb = queries(n, seed, pts)[qi]
+    t0 = time.perf_counter()
+    front = searcher.search(dep, origin, dest, local, lb, max_labels=max_labels)
+    sec = time.perf_counter() - t0
+    stats = searcher.stats
+    return dict(n=n, seed=seed, dep=dep.strftime("%a %H:%M"), sec=sec, done=True,
+                pushed=stats["pushed"], max_bucket=stats["max_bucket"], approx=stats["approximate"],
+                **{key: value for key, value in stats.items()
+                   if key in ("generated", "expanded") or key.startswith("pruned_")},
+                front=len(front))
+
+
+def _worker(conn, *args):
+    conn.send(_one(*args))
+    conn.close()
+
+
+def _capped(cap, n, seed, qi, max_labels):
+    """別プロセスで測り、cap 秒を超えたら打ち切って未完了として返す。"""
+    import multiprocessing as mp
+    parent, child = mp.Pipe(duplex=False)
+    proc = mp.Process(target=_worker, args=(child, n, seed, qi, max_labels))
+    proc.start()
+    # グラフ生成・前計算の時間も含めて待つので、余裕を持たせる
+    if parent.poll(cap + 60):
+        row = parent.recv()
+        proc.join()
+        if row["sec"] <= cap:
+            return row
+    else:
+        proc.kill()
+        proc.join()
+    return dict(n=n, seed=seed, dep=DEPARTS[qi].strftime("%a %H:%M"), sec=cap, done=False)
+
+
+def run(n: int, seeds=range(3), max_labels: int = 50_000, cap: float | None = None, out=None):
     rows = []
     for seed in seeds:
-        net, pts = make(n, seed)
-        tariffs = default_tariffs()
-        searcher = Searcher(net, tariffs)
-        rnd = random.Random(seed + 99)
-        for dep in (datetime(2026, 11, 25, 12), datetime(2026, 11, 27, 23, 10), datetime(2026, 11, 28, 3, 20)):
-            while True:
-                o = (rnd.uniform(0, SIZE), rnd.uniform(0, SIZE))
-                d = (rnd.uniform(0, SIZE), rnd.uniform(0, SIZE))
-                if 60 < math.dist(o, d) < 200:
-                    break
-            loc = lambda p, q: math.dist(p, q) * 1.3 / 30 * 60
-            ids = [f"n{i}" for i in range(n)]
-            ent = sorted(ids, key=lambda nid: loc(o, pts[int(nid[1:])]))[:k]
-            ext = sorted(ids, key=lambda nid: loc(pts[int(nid[1:])], d))[:k]
-            origin = {nid: loc(o, pts[int(nid[1:])]) for nid in ent}
-            dest = {nid: loc(pts[int(nid[1:])], d) for nid in ext}
-            lb = {nid: math.dist(pts[int(nid[1:])], d) / 100 * 60 for nid in ids}
-            t0 = time.perf_counter()
-            front = searcher.search(dep, origin, dest, loc(o, d), lb, max_labels=50_000)
-            sec = time.perf_counter() - t0
-            stats = searcher.stats
-            rows.append(dict(n=n, seed=seed, dep=dep.strftime("%a %H:%M"), sec=sec,
-                             pushed=stats["pushed"], max_bucket=stats["max_bucket"], approx=stats["approximate"],
-                             **{key: value for key, value in stats.items()
-                                if key in ("generated", "expanded") or key.startswith("pruned_")},
-                             front=len(front)))
-            print(rows[-1], flush=True)
-    secs = [r["sec"] for r in rows]
+        for qi in range(len(DEPARTS)):
+            row = _capped(cap, n, seed, qi, max_labels) if cap else _one(n, seed, qi, max_labels)
+            rows.append(row)
+            print(row, flush=True)
+            if out:
+                with open(out, "a", encoding="utf-8") as f:
+                    print(json.dumps(row, ensure_ascii=False), file=f)
+    done = [r for r in rows if r["done"]]
+    print(f"n={n}: 完了 {len(done)}/{len(rows)}", flush=True)
+    if not done:
+        return
+    secs = [r["sec"] for r in done]
     print(f"n={n}: mean {statistics.mean(secs):.2f}s max {max(secs):.2f}s, "
-          f"mean pushed {statistics.mean(r['pushed'] for r in rows):.0f}, max pushed {max(r['pushed'] for r in rows)}, "
-          f"max bucket {max(r['max_bucket'] for r in rows)}, "
-          f"approx {sum(r['approx'] for r in rows)}/{len(rows)}", flush=True)
-    if "generated" in rows[0]:
-        generated = [r["generated"] for r in rows]
+          f"mean pushed {statistics.mean(r['pushed'] for r in done):.0f}, max pushed {max(r['pushed'] for r in done)}, "
+          f"max bucket {max(r['max_bucket'] for r in done)}, "
+          f"approx {sum(r['approx'] for r in done)}/{len(done)}", flush=True)
+    if "generated" in done[0]:
+        generated = [r["generated"] for r in done]
         print(f"n={n}: mean generated {statistics.mean(generated):.0f}, max generated {max(generated)}, "
-              f"mean expanded {statistics.mean(r['expanded'] for r in rows):.0f}", flush=True)
+              f"mean expanded {statistics.mean(r['expanded'] for r in done):.0f}", flush=True)
 
 
 if __name__ == "__main__":
-    for n in map(int, sys.argv[1:] or ["500", "2000"]):
-        run(n)
+    # 使い方: python explore/scale_engine.py [ノード数...] [--cap 秒] [--out 結果.jsonl]
+    args = sys.argv[1:]
+    cap = out = None
+    if "--cap" in args:
+        i = args.index("--cap")
+        cap = float(args[i + 1])
+        del args[i:i + 2]
+    if "--out" in args:
+        i = args.index("--out")
+        out = args[i + 1]
+        del args[i:i + 2]
+    for n in map(int, args or ["500", "2000"]):
+        run(n, cap=cap, out=out)

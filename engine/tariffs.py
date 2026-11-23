@@ -189,9 +189,9 @@ class NexcoPool(Pool):
 
     def state_key(self, t_in, now, steps):
         if self.night_v2.active(t_in):
-            # 見直し後は、深夜の時間帯に走った距離と時間で割引額が変わるので、それも鍵に入れる
-            km, hours = window_km([s for s in steps() if s.edge.night_ok], time(22), 7)
-            v2 = (round(km, 6), round(hours, 6))
+            # 見直し後は、深夜の時間帯に走った距離と時間で割引額が変わるので、それも鍵に入れる。
+            # 丸めて同一視すると割引額の違う状態を混ぜ得るので、集計値の厳密な一致で比べる
+            v2 = window_km([s for s in steps() if s.edge.night_ok], time(22), 7)
         else:
             v2 = None
         return (cal.is_nexco_holiday_discount_day(t_in.date()), overlaps(t_in, now, time(0), 4), v2)
