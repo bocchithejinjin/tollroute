@@ -1,0 +1,69 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    working_dir: /workspaces/tollroute
+    volumes:
+      - ..:/workspaces/tollroute
+    command: sleep infinity
+    environment:
+      DATABASE_URL: postgis://tollroute:tollroute-dev-pass@db:5432/tollroute
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 常用のサーバー（スマホから Tailscale 経由で使う）。Docker Desktop が動いていれば自動で起動する。
+  # 開発用の runserver（8000）とは別に、127.0.0.1:8080 だけで受け付ける。
+  web:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    working_dir: /workspaces/tollroute
+    volumes:
+      - ..:/workspaces/tollroute
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput -v 0 &&
+             gunicorn config.wsgi --bind 0.0.0.0:8080 --workers 2 --timeout 120"
+    environment:
+      DATABASE_URL: postgis://tollroute:tollroute-dev-pass@db:5432/tollroute
+      DEBUG: "false"
+      SECRET_KEY_FILE: /workspaces/tollroute/data/secret_key
+      EXTRA_ALLOWED_HOSTS: ${TOLLROUTE_HOST:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_USER: tollroute
+      POSTGRES_DB: tollroute
+      POSTGRES_PASSWORD: tollroute-dev-pass
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "tollroute", "-d", "tollroute"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # 一般道の所要時間（有料道路を除外）に使う OSRM。関東のグラフ（data/osrm/kanto、routing/evaluate.sh で作成）
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:26.11.0-debian@sha256:e1929ae2818226284d7ef007329098a30851c11528ab3712bc9c8d68da78278b
+    command: ["osrm-routed", "--algorithm", "mld", "--max-table-size", "200", "/graph/kanto.osrm"]
+    volumes:
+      - ../data/osrm/kanto:/graph:ro
+    ports:
+      - "127.0.0.1:5000:5000"
+    restart: unless-stopped
+
+volumes:
+  db-data:

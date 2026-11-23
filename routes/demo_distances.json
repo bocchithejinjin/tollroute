@@ -1,0 +1,170 @@
+{
+ "_source": "IC 間距離。[公式] = NEXCO 東日本「ドラぷら」高速料金・ルート検索（普通車、2026-11-25 12:00 出発で検索、2026-11-23 取得）の表示距離、[公式から算出] = 同検索の距離どうしの差、[概算] = Wikipedia 日本語版の出入口表（出典の明記なし）などからの推定。詳細は docs/research-demo-distances.md。",
+ "edges": {
+  "tokyo|tomei_kawasaki": {
+   "km": 7.6,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E6%9D%B1%E4%BA%AC&arrivePlaceKana=%E6%9D%B1%E5%90%8D%E5%B7%9D%E5%B4%8E&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 東京→東名川崎 ルート1 の距離 7.6km"
+  },
+  "tomei_kawasaki|yokohama_aoba": {
+   "km": 5.7,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E6%9D%B1%E4%BA%AC&arrivePlaceKana=%E6%A8%AA%E6%B5%9C%E7%94%BA%E7%94%B0&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 東京→横浜町田 ルート1 19.7km − ルート2 の東名区間 横浜青葉JCT→横浜町田 6.4km = 東京〜横浜青葉 13.3km、そこから東京〜東名川崎 7.6km を引いた値（Wikipedia の東京起点 7.6/13.3 と一致）"
+  },
+  "yokohama_aoba|yokohama_machida": {
+   "km": 6.4,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E6%9D%B1%E4%BA%AC&arrivePlaceKana=%E6%A8%AA%E6%B5%9C%E7%94%BA%E7%94%B0&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 東京→横浜町田 ルート2 の区間表示「横浜青葉JCT → 横浜町田 6.4km」"
+  },
+  "yokohama_machida|ebina_jct": {
+   "km": 14.2,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E6%A8%AA%E6%B5%9C%E7%94%BA%E7%94%B0&arrivePlaceKana=%E9%AB%98%E5%B0%BE%E5%B1%B1&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 横浜町田→高尾山 の区間表示「東名 横浜町田 → 海老名JCT 14.2km」"
+  },
+  "ebina_jct|atsugi": {
+   "km": 1.1,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E6%9D%B1%E4%BA%AC&arrivePlaceKana=%E5%8E%9A%E6%9C%A8&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 東京→厚木 35.0km − 東京〜横浜町田 19.7km − 横浜町田〜海老名JCT 14.2km（Wikipedia 33.9/35.0 と一致）"
+  },
+  "takaido|chofu": {
+   "km": 7.7,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E5%85%AB%E7%8E%8B%E5%AD%90&arrivePlaceKana=%E9%AB%98%E4%BA%95%E6%88%B8%28%E4%B8%AD%E5%A4%AE%E9%81%93%29&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 八王子→高井戸(中央道) 25.8km − 調布→八王子 18.1km（Wikipedia 高井戸起点 7.7 と一致）"
+  },
+  "chofu|inagi": {
+   "km": 2.3,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E9%AB%98%E4%BA%95%E6%88%B8%28%E4%B8%AD%E5%A4%AE%E9%81%93%29&arrivePlaceKana=%E7%A8%B2%E5%9F%8E&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 高井戸(中央道)→稲城（高井戸は下り方向に入れないため調布発に置き換え）= 調布→稲城 2.3km"
+  },
+  "inagi|kunitachi_fuchu": {
+   "km": 7.0,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E9%AB%98%E4%BA%95%E6%88%B8%28%E4%B8%AD%E5%A4%AE%E9%81%93%29&arrivePlaceKana=%E5%85%AB%E7%8E%8B%E5%AD%90&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 調布→八王子 18.1km − 調布→稲城 2.3km − 国立府中→八王子 8.8km（Wikipedia 10.0/17.0 と一致）。稲城→国立府中の直接検索は府中スマートIC に置き換えられ 5.8km と出るので使わない"
+  },
+  "kunitachi_fuchu|hachioji": {
+   "km": 8.8,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E5%9B%BD%E7%AB%8B%E5%BA%9C%E4%B8%AD&arrivePlaceKana=%E5%85%AB%E7%8E%8B%E5%AD%90&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 国立府中→八王子 8.8km"
+  },
+  "hachioji|hachioji_jct": {
+   "km": 10.2,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E5%85%AB%E7%8E%8B%E5%AD%90&arrivePlaceKana=%E9%AB%98%E5%B0%BE%E5%B1%B1&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 八王子→高尾山 の区間表示「中央道 八王子 → 八王子JCT 10.2km」"
+  },
+  "ebina_jct|ken_atsugi": {
+   "km": 6.8,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E6%A8%AA%E6%B5%9C%E7%94%BA%E7%94%B0&arrivePlaceKana=%E7%9B%B8%E6%A8%A1%E5%8E%9F&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 横浜町田→相模原 の圏央道区間 海老名JCT→相模原 20.9km − 5.2 − 8.9（海老名JCT→高尾山 26.8km からも 6.8。Wikipedia 9.4/16.2 と一致）"
+  },
+  "ken_atsugi|sagamihara_aikawa": {
+   "km": 5.2,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E5%9C%8F%E5%A4%AE%E5%8E%9A%E6%9C%A8&arrivePlaceKana=%E7%9B%B8%E6%A8%A1%E5%8E%9F%E6%84%9B%E5%B7%9D&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 圏央厚木→相模原愛川 5.2km"
+  },
+  "sagamihara_aikawa|sagamihara": {
+   "km": 8.9,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E7%9B%B8%E6%A8%A1%E5%8E%9F%E6%84%9B%E5%B7%9D&arrivePlaceKana=%E7%9B%B8%E6%A8%A1%E5%8E%9F&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 相模原愛川→相模原 8.9km"
+  },
+  "sagamihara|takaosan": {
+   "km": 5.9,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E7%9B%B8%E6%A8%A1%E5%8E%9F&arrivePlaceKana=%E9%AB%98%E5%B0%BE%E5%B1%B1&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 相模原→高尾山 5.9km"
+  },
+  "takaosan|hachioji_jct": {
+   "km": 2.0,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E5%85%AB%E7%8E%8B%E5%AD%90&arrivePlaceKana=%E9%AB%98%E5%B0%BE%E5%B1%B1&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 八王子→高尾山 の区間表示「圏央道 八王子JCT → 高尾山 2.0km」"
+  },
+  "tokyo|youga": {
+   "km": 0.0,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F3%E5%8F%B7%E6%B8%8B%E8%B0%B7%E7%B7%9A",
+   "note": "[概算] Wikipedia の表で用賀出入口と東京IC（東名との境界）がどちらも谷町JCT起点 11.7km。首都高の料金距離としては 0 とみなす。エンジンが 0km を嫌う場合は OSM 直線距離（約 1.3km）で代用"
+  },
+  "youga|sangenjaya": {
+   "km": 5.7,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F3%E5%8F%B7%E6%B8%8B%E8%B0%B7%E7%B7%9A",
+   "note": "[概算] Wikipedia 谷町JCT起点 用賀 11.7 − 三軒茶屋 6.0。出典の明記なし。ドラぷらでは 用賀→谷町JCT 12.0km（Wikipedia より 0.3km 長い）"
+  },
+  "sangenjaya|ikejiri": {
+   "km": 0.4,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F3%E5%8F%B7%E6%B8%8B%E8%B0%B7%E7%B7%9A",
+   "note": "[概算] Wikipedia 三軒茶屋 6.0 − 池尻 5.6。出典の明記なし"
+  },
+  "ikejiri|ohashi_jct": {
+   "km": 0.6,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F3%E5%8F%B7%E6%B8%8B%E8%B0%B7%E7%B7%9A",
+   "note": "[概算] Wikipedia 池尻 5.6 − 大橋JCT 5.0。出典の明記なし"
+  },
+  "ohashi_jct|tomigaya": {
+   "km": 2.0,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F%E4%B8%AD%E5%A4%AE%E7%92%B0%E7%8A%B6%E7%B7%9A",
+   "note": "[概算] Wikipedia 大井JCT起点 大橋JCT 9.4 → 富ヶ谷 11.4。出典の明記なし"
+  },
+  "tomigaya|hatsudai_minami": {
+   "km": 0.4,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F%E4%B8%AD%E5%A4%AE%E7%92%B0%E7%8A%B6%E7%B7%9A",
+   "note": "[概算] Wikipedia 富ヶ谷 11.4 → 初台南 11.8。出典の明記なし"
+  },
+  "hatsudai_minami|nishishinjuku_jct": {
+   "km": 1.2,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F%E4%B8%AD%E5%A4%AE%E7%92%B0%E7%8A%B6%E7%B7%9A",
+   "note": "[概算] Wikipedia 初台南 11.8 → 西新宿JCT 13.0。出典の明記なし"
+  },
+  "nishishinjuku_jct|nakano_chojabashi": {
+   "km": 1.7,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F%E4%B8%AD%E5%A4%AE%E7%92%B0%E7%8A%B6%E7%B7%9A",
+   "note": "[概算] Wikipedia 西新宿JCT 13.0 → 中野長者橋 14.7。出典の明記なし。富ヶ谷〜中野長者橋 3.3km はドラぷらの区間表示（堀切JCT→中野長者橋 21.0 / →富ヶ谷 24.3）の差と一致"
+  },
+  "takaido|takaido_s": {
+   "km": 0.0,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F4%E5%8F%B7%E6%96%B0%E5%AE%BF%E7%B7%9A",
+   "note": "[概算] 中央道 高井戸IC と首都高 高井戸出入口は同じ場所（料金所の境界）。距離 0 とみなす"
+  },
+  "takaido_s|eifuku": {
+   "km": 2.5,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F4%E5%8F%B7%E6%96%B0%E5%AE%BF%E7%B7%9A",
+   "note": "[概算] Wikipedia 三宅坂JCT起点 高井戸 12.4 − 永福(409 上り) 9.9。永福(408 下り) は 9.6。出典の明記なし"
+  },
+  "eifuku|hatagaya": {
+   "km": 3.1,
+   "source": "https://ja.wikipedia.org/wiki/%E9%A6%96%E9%83%BD%E9%AB%98%E9%80%9F4%E5%8F%B7%E6%96%B0%E5%AE%BF%E7%B7%9A",
+   "note": "[概算] Wikipedia 永福 9.9 − 幡ヶ谷 6.8。出典の明記なし"
+  },
+  "hatagaya|nishishinjuku_jct": {
+   "km": 0.3,
+   "source": "https://ja.wikipedia.org/wiki/%E8%A5%BF%E6%96%B0%E5%AE%BF%E3%82%B8%E3%83%A3%E3%83%B3%E3%82%AF%E3%82%B7%E3%83%A7%E3%83%B3",
+   "note": "[概算] 西新宿JCT は初台交差点の真上（Wikipedia 西新宿ジャンクション）なので、初台出入口 6.5km の位置とみなした。幡ヶ谷 6.8 − 6.5"
+  },
+  "nishishinjuku_jct|shinjuku": {
+   "km": 1.2,
+   "source": "https://ja.wikipedia.org/wiki/%E8%A5%BF%E6%96%B0%E5%AE%BF%E3%82%B8%E3%83%A3%E3%83%B3%E3%82%AF%E3%82%B7%E3%83%A7%E3%83%B3",
+   "note": "[概算] 西新宿JCT ≒ 初台 6.5 − 新宿 5.3（Wikipedia 4号新宿線）。高井戸→新宿の合計 7.1km はドラぷら 高井戸(首都高速)→新宿 7.1km と一致"
+  },
+  "hodogaya|hazawa": {
+   "km": 1.7,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E7%8E%89%E5%B7%9D%28%E7%AC%AC%E4%B8%89%E4%BA%AC%E6%B5%9C%29&arrivePlaceKana=%E4%BF%9D%E5%9C%9F%E3%83%B6%E8%B0%B7&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 玉川→保土ヶ谷 16.4km − 玉川→羽沢 14.7km"
+  },
+  "hazawa|kohoku": {
+   "km": 3.9,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E7%8E%89%E5%B7%9D%28%E7%AC%AC%E4%B8%89%E4%BA%AC%E6%B5%9C%29&arrivePlaceKana=%E7%BE%BD%E6%B2%A2&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 玉川→羽沢 14.7km − 玉川→港北 10.8km"
+  },
+  "kohoku|tsuzuki": {
+   "km": 3.0,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E7%8E%89%E5%B7%9D%28%E7%AC%AC%E4%B8%89%E4%BA%AC%E6%B5%9C%29&arrivePlaceKana=%E6%B8%AF%E5%8C%97&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 玉川→港北 10.8km − 玉川→都筑 7.8km"
+  },
+  "tsuzuki|keihin_kawasaki": {
+   "km": 5.6,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E7%8E%89%E5%B7%9D%28%E7%AC%AC%E4%B8%89%E4%BA%AC%E6%B5%9C%29&arrivePlaceKana=%E9%83%BD%E7%AD%91&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式から算出] ドラぷら 玉川→都筑 7.8km − 玉川→京浜川崎 2.2km"
+  },
+  "keihin_kawasaki|tamagawa": {
+   "km": 2.2,
+   "source": "https://www.driveplaza.com/dp/SearchQuick?startPlaceKana=%E7%8E%89%E5%B7%9D%28%E7%AC%AC%E4%B8%89%E4%BA%AC%E6%B5%9C%29&arrivePlaceKana=%E4%BA%AC%E6%B5%9C%E5%B7%9D%E5%B4%8E&carType=1&kind=1&priority=2&searchYear=2026&searchMonth=11&searchDay=25&searchHour=12&searchMinute=0&selectickindflg=0",
+   "note": "[公式] ドラぷら 玉川→京浜川崎 2.2km"
+  }
+ }
+}

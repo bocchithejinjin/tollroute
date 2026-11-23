@@ -1,0 +1,15 @@
+x-osrm-image: &osrm-image ghcr.io/project-osrm/osrm-backend:26.11.0-debian@sha256:e1929ae2818226284d7ef007329098a30851c11528ab3712bc9c8d68da78278b
+
+services:
+  builder:
+    image: *osrm-image
+    volumes:
+      - ../data/osm:/input:ro
+      - ${ROUTING_RUN:?set ROUTING_RUN}/osrm:/graph
+  server:
+    image: *osrm-image
+    volumes:
+      - ${ROUTING_RUN:?set ROUTING_RUN}/osrm:/graph:ro
+    command: ["osrm-routed", "--algorithm", "mld", "--threads", "${ROUTING_THREADS:-4}", "/graph/kanto.osrm"]
+    ports:
+      - "127.0.0.1:5000:5000"

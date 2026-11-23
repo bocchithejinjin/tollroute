@@ -1,0 +1,209 @@
+{
+ "_source": "© OpenStreetMap contributors (ODbL). Overpass API, highway=motorway_junction, 2026-11-23 取得。同名の点は平均。",
+ "ics": {
+  "tokyo": {
+   "name": "東京IC",
+   "lat": 35.628471,
+   "lon": 139.61667,
+   "osm_points": 2
+  },
+  "tomei_kawasaki": {
+   "name": "東名川崎IC",
+   "lat": 35.587096,
+   "lon": 139.567724,
+   "osm_points": 2
+  },
+  "yokohama_aoba": {
+   "name": "横浜青葉IC",
+   "lat": 35.543031,
+   "lon": 139.539794,
+   "osm_points": 2
+  },
+  "yokohama_machida": {
+   "name": "横浜町田IC",
+   "lat": 35.507609,
+   "lon": 139.482812,
+   "osm_points": 4
+  },
+  "ebina_jct": {
+   "name": "海老名JCT",
+   "lat": 35.423668,
+   "lon": 139.377085,
+   "osm_points": 4
+  },
+  "atsugi": {
+   "name": "厚木IC",
+   "lat": 35.423885,
+   "lon": 139.362093,
+   "osm_points": 4
+  },
+  "youga": {
+   "name": "用賀",
+   "lat": 35.626538,
+   "lon": 139.630381,
+   "osm_points": 3
+  },
+  "sangenjaya": {
+   "name": "三軒茶屋",
+   "lat": 35.646672,
+   "lon": 139.677003,
+   "osm_points": 2
+  },
+  "ikejiri": {
+   "name": "池尻",
+   "lat": 35.648259,
+   "lon": 139.679968,
+   "osm_points": 2
+  },
+  "ohashi_jct": {
+   "name": "大橋JCT",
+   "lat": 35.65121,
+   "lon": 139.688876,
+   "osm_points": 4
+  },
+  "tomigaya": {
+   "name": "富ヶ谷",
+   "lat": 35.665949,
+   "lon": 139.688029,
+   "osm_points": 1
+  },
+  "hatsudai_minami": {
+   "name": "初台南",
+   "lat": 35.672915,
+   "lon": 139.687589,
+   "osm_points": 1
+  },
+  "nishishinjuku_jct": {
+   "name": "西新宿JCT",
+   "lat": 35.682003,
+   "lon": 139.685214,
+   "osm_points": 3
+  },
+  "nakano_chojabashi": {
+   "name": "中野長者橋",
+   "lat": 35.695481,
+   "lon": 139.68259,
+   "osm_points": 2
+  },
+  "takaido_s": {
+   "name": "高井戸（首都高）",
+   "lat": 35.673226,
+   "lon": 139.621395,
+   "osm_points": 1
+  },
+  "eifuku": {
+   "name": "永福",
+   "lat": 35.669088,
+   "lon": 139.647557,
+   "osm_points": 2
+  },
+  "hatagaya": {
+   "name": "幡ヶ谷",
+   "lat": 35.677605,
+   "lon": 139.678393,
+   "osm_points": 1
+  },
+  "shinjuku": {
+   "name": "新宿",
+   "lat": 35.68192,
+   "lon": 139.690764,
+   "osm_points": 2
+  },
+  "takaido": {
+   "name": "高井戸IC",
+   "lat": 35.680489,
+   "lon": 139.604739,
+   "osm_points": 1
+  },
+  "chofu": {
+   "name": "調布IC",
+   "lat": 35.660969,
+   "lon": 139.534978,
+   "osm_points": 2
+  },
+  "inagi": {
+   "name": "稲城IC",
+   "lat": 35.655623,
+   "lon": 139.517779,
+   "osm_points": 2
+  },
+  "kunitachi_fuchu": {
+   "name": "国立府中IC",
+   "lat": 35.672232,
+   "lon": 139.441261,
+   "osm_points": 2
+  },
+  "hachioji": {
+   "name": "八王子IC",
+   "lat": 35.675686,
+   "lon": 139.352039,
+   "osm_points": 3
+  },
+  "hachioji_jct": {
+   "name": "八王子JCT",
+   "lat": 35.642135,
+   "lon": 139.257492,
+   "osm_points": 3
+  },
+  "ken_atsugi": {
+   "name": "圏央厚木IC",
+   "lat": 35.480189,
+   "lon": 139.372806,
+   "osm_points": 2
+  },
+  "sagamihara_aikawa": {
+   "name": "相模原愛川IC",
+   "lat": 35.522697,
+   "lon": 139.354161,
+   "osm_points": 2
+  },
+  "sagamihara": {
+   "name": "相模原IC",
+   "lat": 35.581824,
+   "lon": 139.293432,
+   "osm_points": 2
+  },
+  "takaosan": {
+   "name": "高尾山IC",
+   "lat": 35.623969,
+   "lon": 139.263252,
+   "osm_points": 2
+  },
+  "hodogaya": {
+   "name": "保土ヶ谷",
+   "lat": 35.48194,
+   "lon": 139.59467,
+   "osm_points": 1
+  },
+  "hazawa": {
+   "name": "羽沢",
+   "lat": 35.48769,
+   "lon": 139.592668,
+   "osm_points": 2
+  },
+  "kohoku": {
+   "name": "港北",
+   "lat": 35.520828,
+   "lon": 139.593618,
+   "osm_points": 3
+  },
+  "tsuzuki": {
+   "name": "都筑",
+   "lat": 35.546083,
+   "lon": 139.602919,
+   "osm_points": 4
+  },
+  "keihin_kawasaki": {
+   "name": "京浜川崎",
+   "lat": 35.592299,
+   "lon": 139.625403,
+   "osm_points": 4
+  },
+  "tamagawa": {
+   "name": "玉川",
+   "lat": 35.605214,
+   "lon": 139.638757,
+   "osm_points": 2
+  }
+ }
+}

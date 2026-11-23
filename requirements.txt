@@ -1,0 +1,8 @@
+Django~=5.2.0
+psycopg[binary]~=3.2
+dj-database-url~=3.0
+pytest~=8.4
+pytest-django~=4.11
+jageocoder~=2.2
+gunicorn~=23.0
+whitenoise~=6.9

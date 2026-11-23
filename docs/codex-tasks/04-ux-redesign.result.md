@@ -1,0 +1,5 @@
+- スマホで開くと、予算内の最速ルートの所要時間・到着予定・高速代がすぐ分かります。一般道が最速の場合は、0 円の候補を同じ場所に表示します。
+- 候補は最速との差額・時間差で比較でき、選んだルートをナビで開けます。概算の注記と近似結果の警告も表示します。
+- 「今すぐ」、予算の目安、前回の地点・予算の復元を追加しました。調査の出典と設計判断は [ux-redesign.md](/docs/ux-redesign.md) にまとめました。
+- 画面の変更ファイルは [index.html](/routes/templates/routes/index.html)、[search.css](/routes/static/routes/search.css)、[search.js](/routes/static/routes/search.js) です。
+- Docker で **124 件のテストが通過**しました。実 API と模擬 DOM で主要操作を検証しました。内蔵ブラウザーに接続できず、画面の目視確認は未実施です。

@@ -1,0 +1,16 @@
+x-valhalla-image: &valhalla-image ghcr.io/valhalla/valhalla:3.6.3@sha256:2b19ea46551a9687b245022551183829d817fdee9b58c5e7b2adb6e422749c43
+
+services:
+  builder:
+    image: *valhalla-image
+    volumes:
+      - ../data/osm:/input:ro
+      - ${ROUTING_RUN:?set ROUTING_RUN}/valhalla:/graph
+    working_dir: /graph
+  server:
+    image: *valhalla-image
+    volumes:
+      - ${ROUTING_RUN:?set ROUTING_RUN}/valhalla:/graph:ro
+    command: ["valhalla_service", "/graph/valhalla.json", "${ROUTING_THREADS:-4}"]
+    ports:
+      - "127.0.0.1:8002:8002"

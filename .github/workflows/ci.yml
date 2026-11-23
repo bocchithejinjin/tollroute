@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: engine (pure Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Run engine tests
+        run: python -m pytest -q engine
+
+  django:
+    name: django (routes)
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: tollroute
+          POSTGRES_DB: tollroute
+          POSTGRES_PASSWORD: tollroute-dev-pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U tollroute -d tollroute"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgis://tollroute:tollroute-dev-pass@localhost:5432/tollroute
+      TRAVEL_TIME_PROVIDER: estimate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install GDAL / GEOS / PROJ
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdal-bin libgdal-dev libgeos-dev libproj-dev binutils
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      # Ubuntu の GDAL のバージョンによっては Django の gis.W001 警告が出るが、テストには影響しない
+      - name: Run Django tests
+        run: python -m pytest -q routes
