@@ -45,10 +45,13 @@ def brute_force(net: Network, tariffs: Tariffs, depart: datetime, origin_min, de
         stack = [(a, m, [], a)]
         while stack:
             u, t, edges, r_entry = stack.pop()
-            if edges and u != r_entry and u in dest_min and net.nodes[u].can_exit:
-                plans.append(evaluate(net, tariffs, depart, a, edges, origin_min, dest_min))
             last = edges[-1] if edges else None
+            node = net.nodes[u]
+            if last is not None and u != r_entry and u in dest_min and node.can_exit and node.permits_exit_from(last.u):
+                plans.append(evaluate(net, tariffs, depart, a, edges, origin_min, dest_min))
             for e in net.out[u]:
+                if last is None and not node.permits_entry_towards(e.v):
+                    continue
                 if not allowed(last, e):
                     continue
                 nt = t + e.time_min

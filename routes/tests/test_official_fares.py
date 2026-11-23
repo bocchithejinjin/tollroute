@@ -8,7 +8,8 @@ from datetime import datetime
 
 import pytest
 
-from engine.brute import evaluate
+from engine.brute import brute_force, evaluate
+from engine.search import Searcher
 from routes import demo
 
 WED_NOON = datetime(2026, 11, 25, 12, 0)
@@ -47,3 +48,20 @@ def test_matches_official_fare(a, b, official):
     net, tariffs, _ = demo.build()
     plan = evaluate(net, tariffs, WED_NOON, a, fastest_edges(net, a, b), {a: 0.0}, {b: 0.0})
     assert plan.fare == official
+
+
+@pytest.mark.parametrize("entry, exit_, reachable", [
+    ("takaido_s", "hatagaya", False),  # 都心方向の走行では幡ヶ谷の下り出口へ降りられない
+    ("shinjuku", "hatagaya", False),  # デモ網にある西向き本線へ新宿から入れない
+    ("takaido_s", "shinjuku", True),
+    ("hatagaya", "shinjuku", True),
+    ("youga", "nakano_chojabashi", False),  # デモ網は内回りの出口へ続く区間を持たない
+    ("youga", "tomigaya", False),
+    ("youga", "hatsudai_minami", True),
+])
+def test_demo_shutoko_ramp_directions(entry, exit_, reachable):
+    net, tariffs, _ = demo.build()
+    args = (net, tariffs, WED_NOON, {entry: 0}, {exit_: 0}, 30)
+    expected = brute_force(*args)
+    assert Searcher(net, tariffs).search(*args[2:]) == expected
+    assert any(plan.exit == exit_ for plan in expected) == reachable

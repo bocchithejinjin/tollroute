@@ -18,6 +18,15 @@ class Node:
     lon: float
     can_enter: bool = True
     can_exit: bool = True
+    # None は方向制限なし。空の組は、対応するランプにデモ網内から接続できない場合。
+    entry_towards: tuple[str, ...] | None = None
+    exit_from: tuple[str, ...] | None = None
+
+    def permits_entry_towards(self, neighbor: str) -> bool:
+        return self.entry_towards is None or neighbor in self.entry_towards
+
+    def permits_exit_from(self, neighbor: str) -> bool:
+        return self.exit_from is None or neighbor in self.exit_from
 
 
 @dataclass(frozen=True)

@@ -91,6 +91,23 @@ def test_zero_budget_has_no_options(client):
     assert res.json()["options"] == []
 
 
+def test_google_maps_omits_the_hachioji_ic_marker(client):
+    from urllib.parse import parse_qs, urlsplit
+
+    from routes import demo
+
+    response = client.get("/api/search/", {"origin": "hachioji", "dest": "shinjuku",
+                          "depart": "2026-11-25T12:00", "budget": "3500"}, HTTP_HOST="localhost")
+    assert response.status_code == 200
+    plans = [plan for plan in response.json()["front"] if plan["entry"] == "八王子IC"]
+    assert plans
+    hachioji = ",".join(f"{coordinate:.6f}" for coordinate in demo.ic_pos("hachioji"))
+    for plan in plans:
+        assert plan["exit"] != "幡ヶ谷"
+        query = parse_qs(urlsplit(plan["nav"]["google"]).query)
+        assert hachioji not in query["waypoints"][0].split("|")
+
+
 def test_falls_back_to_estimate_when_osrm_down(client, monkeypatch):
     from routes import travel
 

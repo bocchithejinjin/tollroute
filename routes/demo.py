@@ -3,7 +3,7 @@
 【デモ用の概算であること】
 - IC の位置は OpenStreetMap（demo_ics.json）。区間の距離は demo_distances.json（NEXCO・第三京浜は公式、首都高は概算）。
 - 一般道の所要時間は直線距離 × 1.3 ÷ 時速 20km の概算（ルート検索エンジンの準備ができたら差し替える）。
-- 首都圏の「起終点を基本とした料金」、中央道（高井戸〜八王子）の 630 円上限、IC ごとの乗り降りの方向の制限は未対応。
+- 首都圏の「起終点を基本とした料金」、中央道（高井戸〜八王子）の 630 円上限は未対応。出入口の方向制限は首都高の一部に反映。
 - 第三京浜の料金は、公式の料金表で確認できた組み合わせ以外は概算。
 """
 from __future__ import annotations
@@ -20,6 +20,20 @@ ICS = json.loads((Path(__file__).with_name("demo_ics.json")).read_text(encoding=
 SOURCE = ICS["_source"]
 
 JCTS = {"ebina_jct", "ohashi_jct", "nishishinjuku_jct", "hachioji_jct"}
+
+# 首都高公式の出入口案内に基づく、乗る方向の隣接ノードと降りる方向の直前ノード。
+# https://www.shutoko.jp/driving/route/
+RAMP_DIRECTIONS = {
+    "youga": (("sangenjaya",), ("sangenjaya",)),
+    "sangenjaya": (("ikejiri",), ("ikejiri",)),
+    "ikejiri": (("sangenjaya",), ("sangenjaya",)),
+    "tomigaya": (("hatsudai_minami",), ("hatsudai_minami",)),
+    "hatsudai_minami": (("tomigaya",), ("tomigaya",)),
+    "nakano_chojabashi": ((), ()),  # 外回りの入口・内回りの出口に続く北側はデモ網の範囲外。
+    "takaido_s": (("eifuku",), ("eifuku",)),
+    "hatagaya": (("nishishinjuku_jct",), ("nishishinjuku_jct",)),
+    "shinjuku": ((), None),  # 上り入口から先の東側はデモ網の範囲外。西側から上り出口には進める。
+}
 
 # (路線名, 料金プール, 区分, 休日割引の対象, 時速, IC の並び)
 ROADS = [
@@ -92,7 +106,10 @@ def build() -> tuple[Network, Tariffs, dict]:
     net = Network()
     for nid, ic in ICS["ics"].items():
         jct = nid in JCTS
-        net.add_node(Node(nid, ic["name"], ic["lat"], ic["lon"], can_enter=not jct, can_exit=not jct))
+        entry_towards, exit_from = RAMP_DIRECTIONS.get(nid, (None, None))
+        net.add_node(Node(nid, ic["name"], ic["lat"], ic["lon"],
+                          can_enter=not jct and entry_towards != (), can_exit=not jct and exit_from != (),
+                          entry_towards=entry_towards, exit_from=exit_from))
     seen = set()
     for road, pool, cls, holiday_ok, kmh, seq in ROADS:
         for a, b in zip(seq, seq[1:]):

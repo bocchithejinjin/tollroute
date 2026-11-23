@@ -236,21 +236,32 @@ class OdDistancePool(Pool):
         self._net = None
 
     def _od_km(self, a: str, b: str) -> float:
-        dist = {a: 0.0}
-        pq = [(0.0, a)]
+        if a == b:
+            return 0.0
+        start = self._net.nodes[a]
+        end = self._net.nodes[b]
+        dist = {}
+        pq = []
+        for edge in self._net.out[a]:
+            if edge.pool == self.id and start.permits_entry_towards(edge.v):
+                position = (edge.v, a)
+                if edge.dist_km < dist.get(position, math.inf):
+                    dist[position] = edge.dist_km
+                    heapq.heappush(pq, (edge.dist_km, *position))
         while pq:
-            d, u = heapq.heappop(pq)
-            if u == b:
-                return d
-            if d > dist[u]:
+            d, u, previous = heapq.heappop(pq)
+            if d > dist[u, previous]:
                 continue
+            if u == b and end.permits_exit_from(previous):
+                return d
             for e in self._net.out[u]:
-                if e.pool != self.id:
+                if e.pool != self.id or e.v == previous:
                     continue
                 nd = d + e.dist_km
-                if nd < dist.get(e.v, math.inf):
-                    dist[e.v] = nd
-                    heapq.heappush(pq, (nd, e.v))
+                position = (e.v, u)
+                if nd < dist.get(position, math.inf):
+                    dist[position] = nd
+                    heapq.heappush(pq, (nd, *position))
         return math.inf
 
     def version_at(self, t: datetime) -> OdVersion:
