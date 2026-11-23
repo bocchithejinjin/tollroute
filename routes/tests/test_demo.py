@@ -80,10 +80,9 @@ def test_options_with_value(client):
     assert "いちばんお得" in labels
     best_value = min(p["yen_per_min"] for p in data["front"] if p["yen_per_min"] is not None and p["fare"] <= 1600)
     assert next(o for o in opts if o["label"] == "いちばんお得")["yen_per_min"] == best_value
-    for o in opts:
-        assert o["nav"]["google"].startswith("https://www.google.com/maps/dir/?api=1")
-        assert o["nav"]["yahoo"].startswith("yjcarnavi://navi/select?point=")
-        assert o["nav"]["yahoo"].count("point=") <= 5
+    for plan in [*opts, data["local_only"]]:
+        assert set(plan["nav"]) == {"google"}
+        assert plan["nav"]["google"].startswith("https://www.google.com/maps/dir/?api=1")
 
 
 def test_zero_budget_has_no_options(client):

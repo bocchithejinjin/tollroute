@@ -134,11 +134,10 @@ fieldset { min-width: 0; padding: 0; border: 0; margin: 0; }
 .step-badge { flex: 0 0 auto; display: grid; place-items: center; width: 2rem; height: 2rem; border: var(--border-thin); border-radius: 50%; background: var(--white); color: var(--ink); font-family: var(--font-num); font-weight: 800; line-height: 1; }
 .highway > .step-badge { background: var(--accent-soft); }
 
-.nav-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .75rem; margin-block: 1.125rem .5rem; }
+.nav-actions { display: grid; margin-block: 1.125rem .5rem; }
 .nav-actions .button { min-height: 52px; border-width: 3px; box-shadow: 4px 4px 0 var(--ink); }
 .nav-actions .button:active { transform: translate(4px, 4px); box-shadow: none; }
 .nav-actions a::after { content: "\2197" / ""; flex: 0 0 auto; display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border: 2px solid currentColor; border-radius: 50%; font-size: .8125rem; line-height: 1; }
-.nav-hint { color: var(--muted); font-size: .8125rem; }
 .route-details { margin-top: .75rem; border-top: 3px dotted var(--muted); }
 .route-details summary { display: flex; align-items: center; padding-block: .65rem; min-height: 44px; font-weight: 700; font-size: .9375rem; }
 .route-details ol { margin: 0 0 .5rem; padding: 0; list-style: none; }
