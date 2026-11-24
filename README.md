@@ -1,6 +1,6 @@
 # tollroute
 
-> **English summary:** tollroute suggests the fastest (and best-value) driving routes in Japan that fit within a highway-toll budget you set. It models ETC tolls including holiday / late-night discounts and time-of-day pricing, shows up to 5 alternatives with a "value" score (yen saved per minute), and sends the chosen route's waypoints to Google Maps. Status: early prototype covering a small demo network around Seya (Yokohama) – Nakano-shimbashi (Tokyo). Fares are estimates, not official. Code is MIT-licensed; some bundled data has its own license (see [NOTICE.md](NOTICE.md)). Docs are in Japanese.
+> **English summary:** tollroute suggests the fastest (and best-value) driving routes in Japan that fit within a highway-toll budget you set. It models ETC tolls including holiday / late-night discounts and time-of-day pricing, shows up to 5 alternatives with a "value" score (yen saved per minute), and sends the chosen route's waypoints to Google Maps. Status: early prototype covering a small demo network around Yokohama – Shinjuku (Tokyo). Fares are estimates, not official. Code is MIT-licensed; some bundled data has its own license (see [NOTICE.md](NOTICE.md)). Docs are in Japanese.
 
 高速代の予算を決めると、その範囲で**いちばん早く着くルート**と**お得なルート**を提案する Web アプリです。
 
