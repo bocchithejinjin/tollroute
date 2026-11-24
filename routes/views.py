@@ -1,3 +1,4 @@
+import math
 import os
 import threading
 from datetime import datetime, timedelta
@@ -10,12 +11,32 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
-from engine.search import Searcher, pick
+from engine.calendar import KNOWN_UNTIL, known
+from engine.search import Plan, Searcher, pick
 
 from . import demo, google_routes
 from .ratelimit import limited
 from .geocode import STATION_LEVEL, GeocoderUnavailable, geocode
 from .travel import EstimateProvider, OsrmProvider, TravelTimeError, get_provider
+
+JST = ZoneInfo("Asia/Tokyo")
+MAX_IC_KM = 30  # 出発地・目的地から最寄りの IC までの直線距離の上限（デモ道路網の対象範囲）
+
+
+def parse_departure(value: str):
+    """出発日時（日本時間、タイムゾーンなし）。タイムゾーン付きの値は日本時間に直す。"""
+    depart = datetime.fromisoformat(value)
+    if depart.tzinfo is not None:
+        depart = depart.astimezone(JST).replace(tzinfo=None)
+    if not 2000 <= depart.year <= 2100:
+        raise ValueError("出発日時を確認してください")
+    return depart.replace(second=0, microsecond=0)
+
+
+def check_coverage(net, point, label):
+    nearest = min(demo.km_between(point, (x.lat, x.lon)) for x in net.nodes.values())
+    if nearest > MAX_IC_KM:
+        raise ValueError(f"{label}が対応範囲（横浜〜新宿周辺のデモ道路網）から離れすぎています")
 
 POOL_LABEL = {"nexco": "NEXCO", "shutoko": "首都高", "daisan_keihin": "第三京浜", "yokohama_shindo": "横浜新道",
               "aqualine": "アクアライン"}
@@ -104,9 +125,15 @@ def _nav_waypoints(entry, junctions, exit_):
     return [(node.lat, node.lon) for node in nodes if node.id != "hachioji"]
 
 
+def clock(depart, minutes):
+    """到着時刻の表示。日をまたぐときは「翌日」を付ける。"""
+    arrive = depart + timedelta(minutes=minutes)
+    days = (arrive.date() - depart.date()).days
+    return arrive.strftime("%H:%M") if days == 0 else f"{'翌日' if days == 1 else f'{days}日後'} {arrive:%H:%M}"
+
+
 def _plan_json(p, net, depart, o, d, o_name, d_name):
-    arrive = depart + timedelta(minutes=p.minutes)
-    base = {"minutes": round(p.minutes, 1), "fare": p.fare, "arrive": arrive.strftime("%H:%M")}
+    base = {"minutes": round(p.minutes, 1), "fare": p.fare, "arrive": clock(depart, p.minutes)}
     if p.entry is None:
         return {**base, "entry": None, "exit": None, "runs": [], "roads": [],
                 "steps": [{"kind": "local", "text": f"一般道で {o_name} → {d_name}", "minutes": round(p.minutes)}],
@@ -172,7 +199,7 @@ def choose_options(front, budget: int, n: int = 5):
     - 安さ重視: 最速の短縮効果の半分以上を、いちばん安く得られる
     同じプランが重なったら、お得度の高い順にほかの候補（通る道路が違うものを優先）で埋める。
     """
-    local_min = next(p.minutes for p in front if p.entry is None)
+    local_min = next((p.minutes for p in front if p.entry is None), math.inf)
     within = [p for p in front if p.fare <= budget and p.entry is not None]
     if not within:
         return []
@@ -350,7 +377,7 @@ def _google_search(search_input, o, d, depart, hints_for):
         "description": describe(candidate),
         "source": "ic" if candidate.via else "google",
         "minutes": round(float(candidate.seconds / 60), 1),
-        "arrive": (depart + timedelta(seconds=float(candidate.seconds))).strftime("%H:%M"),
+        "arrive": clock(depart, float(candidate.seconds) / 60),
         "distance_km": round(candidate.distance / 1000, 1),
         "fare": float(candidate.fare) if candidate.fare is not None else None,
         "within_budget": candidate.fare is not None and candidate.fare <= budget,
@@ -387,10 +414,15 @@ def api_search(request):
         o_name, *o = _point(origin)
         d_name, *d = _point(dest)
         scheduled = request.GET.get("depart")
-        depart = datetime.fromisoformat(scheduled) if scheduled else None
-        budget = int(request.GET.get("budget", "1000"))
-        if budget < 0:
-            raise ValueError("予算は 0 円以上にしてください")
+        depart = parse_departure(scheduled) if scheduled else None
+        # 「今すぐ」の検索では、出発を早める提案をしない
+        now_mode = request.GET.get("now") in {"1", "true"} or depart is None
+        try:
+            budget = int(request.GET.get("budget", "1000"))
+        except ValueError:
+            raise ValueError("予算は整数（円）で指定してください") from None
+        if not 0 <= budget <= 1_000_000:
+            raise ValueError("予算は 0〜1,000,000 円で指定してください")
     except GeocoderUnavailable as exc:
         return JsonResponse({"error": str(exc)}, status=503)
     except (ValueError, TypeError) as exc:
@@ -408,6 +440,9 @@ def api_search(request):
         google_note = "今日の Google での確認回数の上限に達したため、自作エンジンの概算で表示しています。"
     elif settings.GOOGLE_ROUTES_API_KEY:
         def hints_for(when):
+            # 範囲外なら ValueError になり、Google 自身の候補だけで答える
+            check_coverage(net, o, "出発地")
+            check_coverage(net, d, "目的地")
             provider, _, times = _local_times_with_fallback(net, o, d)
             return google_hints(_search(searcher, when, times), net, budget, when, provider)
 
@@ -417,25 +452,41 @@ def api_search(request):
         google_note = "Google の経路を取得できなかったため（利用上限・通信エラーなど）、自作エンジンの概算で表示しています。"
 
     if depart is None:
-        depart = datetime.now().replace(second=0, microsecond=0)
-    provider, provider_note, times = _local_times_with_fallback(net, o, d)
-    front = _search(searcher, depart, times)
+        depart = datetime.now(JST).replace(tzinfo=None, second=0, microsecond=0)
+    try:
+        check_coverage(net, o, "出発地")
+        check_coverage(net, d, "目的地")
+        provider, provider_note, times = _local_times_with_fallback(net, o, d)
+        front = _search(searcher, depart, times)
+    except OverflowError:
+        return JsonResponse({"error": "出発日時を確認してください"}, status=400)
+    except ValueError as exc:  # 一般道でつながらない地点、料金データのない日時
+        return JsonResponse({"error": str(exc)}, status=400)
     approximate = searcher.stats.get("approximate", False)
+    local_plan = next((p for p in front if p.entry is None), None) or Plan(times[2], 0, None, None)
+    calendar_note = None
+    if not known(depart.date()):
+        calendar_note = (f"{KNOWN_UNTIL:%Y年%m月%d日}より後の祝日・休日割引の適用除外日はまだ登録していません。"
+                         "休日割引の有無が実際と違う可能性があります。")
+        approximate = True
     best = pick(front, budget)
 
     # 出発時刻を前後 2 時間の範囲でずらすと、同じくらいの時間でもっと安くならないか
     shifts = []
     for off in range(-120, 121, 15):
-        if off == 0:
+        if off == 0 or (now_mode and off < 0):
             continue
-        f2 = _search(searcher, depart + timedelta(minutes=off), times)
+        try:
+            f2 = _search(searcher, depart + timedelta(minutes=off), times)
+        except (ValueError, OverflowError):
+            continue
         p2 = pick(f2, budget)
         if p2.fare < best.fare and p2.minutes <= best.minutes + 10:
             shifts.append({"offset": off, "depart": (depart + timedelta(minutes=off)).strftime("%H:%M"),
                            "fare": p2.fare, "minutes": round(p2.minutes, 1), "saving": best.fare - p2.fare})
     shift = max(shifts, key=lambda s: (s["saving"], -abs(s["offset"]))) if shifts else None
 
-    local_min = next(p.minutes for p in front if p.entry is None)
+    local_min = local_plan.minutes
 
     def plan(p, label=None):
         j = _plan_json(p, net, depart, o, d, o_name, d_name)
@@ -448,11 +499,12 @@ def api_search(request):
         "depart": depart.strftime("%Y-%m-%d %H:%M"),
         "best": plan(best),
         "options": [plan(p, label) for label, p in choose_options(front, budget)],
-        "local_only": plan(next(p for p in front if p.entry is None), "一般道だけ"),
+        "local_only": plan(local_plan, "一般道だけ"),
         "front": [plan(p) for p in front],
         "shift": shift,
         "approximate": approximate,
         "notes": [
+            *([calendar_note] if calendar_note else []),
             *([google_note] if google_note else []),
             *([provider_note] if provider_note else []),
             provider.description,

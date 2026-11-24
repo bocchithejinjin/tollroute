@@ -312,7 +312,7 @@ async function search(query, {interactive = false} = {}) {
 
   const url = new URL(form.action);
   const {origin, dest, depart, budget} = query;
-  url.search = new URLSearchParams({origin, dest, depart, budget});
+  url.search = new URLSearchParams({origin, dest, depart, budget, ...(query.now ? {now: '1'} : {})});
   if (googleMode && query.now) url.searchParams.delete('depart');
   try {
     const response = await fetch(url, {signal: request.signal, mode: 'same-origin', cache: 'no-store'});
@@ -351,6 +351,7 @@ function responseMessage(error) {
 
 function repeatWith(changes) {
   const query = {...result.query, ...changes};
+  if (query.now) query.depart = nowInJapan();  // 「今すぐ」は押した時点の時刻で検索し直す
   endpoints.forEach((id) => fillPoint(id, query[id]));
   $('budget').value = query.budget;
   form.elements['departure-mode'].value = query.now ? 'now' : 'scheduled';
