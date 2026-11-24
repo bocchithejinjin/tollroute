@@ -19,19 +19,20 @@ def evaluate(net: Network, tariffs: Tariffs, depart: datetime, entry: str, edges
         t0 = depart + timedelta(minutes=t)
         t += e.time_min
         steps.append(Step(e, t0, depart + timedelta(minutes=t)))
-    runs, fare = [], 0
+    runs, fare = (), 0
     i, node = 0, entry
     while i < len(steps):
         j = i
         while j < len(steps) and steps[j].edge.pool == steps[i].edge.pool:
             j += 1
-        rf = tariffs.run_fare(net, node, steps[j - 1].edge.v, steps[i:j])
-        runs.append(rf)
-        fare += rf.fare
+        runs, extra = tariffs.start_run(runs, steps[i].edge.pool)  # 都心通過なら前のランの上限を外す
+        rf = tariffs.run_fare(net, node, steps[j - 1].edge.v, steps[i:j], runs)
+        runs += (rf,)
+        fare += extra + rf.fare
         node = steps[j - 1].edge.v
         i = j
     exit_ = edges[-1].v
-    return Plan(t + dest_min[exit_], fare, entry, exit_, tuple(steps), tuple(runs))
+    return Plan(t + dest_min[exit_], fare, entry, exit_, tuple(steps), runs)
 
 
 def brute_force(net: Network, tariffs: Tariffs, depart: datetime, origin_min, dest_min, local_only_min,

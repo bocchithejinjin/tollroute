@@ -42,6 +42,7 @@ class Edge:
     night_ok: bool = True  # 深夜割引の対象区間か
     tollgate: str | None = None  # この区間に本線料金所があればその ID
     direction: str | None = None  # "up" | "down"（料金所の料金が向きで変わるとき）
+    cap_zone: str | None = None  # 上限額のある区間（NexcoPool.caps のキー）。ランがこの区間だけなら上限が効く
 
 
 @dataclass

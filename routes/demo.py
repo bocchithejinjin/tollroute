@@ -3,7 +3,10 @@
 【デモ用の概算であること】
 - IC の位置は OpenStreetMap（demo_ics.json）。区間の距離は demo_distances.json（NEXCO・第三京浜は公式、首都高は概算）。
 - 一般道の所要時間は直線距離 × 1.3 ÷ 時速 20km の概算（ルート検索エンジンの準備ができたら差し替える）。
-- 首都圏の「起終点を基本とした料金」、中央道（高井戸〜八王子）の 630 円上限は未対応。出入口の方向制限は首都高の一部に反映。
+- 首都圏の「起終点を基本とした料金」は未対応。出入口の方向制限は首都高の一部に反映。
+- 中央道（高井戸〜八王子）の 630 円上限は、中央道内・都心発着（首都高と続けて使う）のランに反映。
+  八王子より西（八王子JCT・圏央道）へ続くランと、都心通過（東名 → 首都高 → 中央道 など）には効かない。
+  深夜割引との関係は未確認で、割引後の金額に上限を掛けている（上限額からは割り引かない）。
 - 第三京浜の料金は、公式の料金表で確認できた組み合わせ以外は概算。
 """
 from __future__ import annotations
@@ -91,6 +94,9 @@ DISTANCES = json.loads((Path(__file__).with_name("demo_distances.json")).read_te
 MIN_KM = 0.1
 # 大都市近郊区間の外（休日割引の対象）。中央道 八王子IC〜八王子JCT（ドラぷらで休日料金が出る）
 OUTSIDE_URBAN = {frozenset(("hachioji", "hachioji_jct"))}
+# 中央道 高井戸〜八王子の 630 円上限の区間（tariffs.default_tariffs の NexcoPool.caps のキー）
+CHUO_CAP_ZONE = "chuo_takaido_hachioji"
+CHUO_CAP_NODES = ("takaido", "chofu", "inagi", "kunitachi_fuchu", "hachioji")
 
 
 def edge_km(a: str, b: str) -> float:
@@ -118,8 +124,9 @@ def build() -> tuple[Network, Tariffs, dict]:
             seen |= {(a, b), (b, a)}
             km = edge_km(a, b)
             c, h = (("normal", True) if frozenset((a, b)) in OUTSIDE_URBAN else (cls, holiday_ok))
+            zone = CHUO_CAP_ZONE if road == "中央道" and a in CHUO_CAP_NODES and b in CHUO_CAP_NODES else None
             for u, v in ((a, b), (b, a)):
-                net.add_edge(Edge(u, v, pool, road, km, km / kmh * 60, c, holiday_ok=h))
+                net.add_edge(Edge(u, v, pool, road, km, km / kmh * 60, c, holiday_ok=h, cap_zone=zone))
     # 第三京浜の料金表（確認できた組み合わせ + 概算）
     seq = ROADS[-1][-1]
     table, estimated = {}, set()

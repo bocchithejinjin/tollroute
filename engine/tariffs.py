@@ -7,6 +7,13 @@
 - 対距離制で区分（普通・大都市近郊）が混ざるときの長距離逓減の掛け方（距離の比で按分している）
 - 割引後の端数処理（割引前の金額から割引額を引き、最後に 10 円単位に丸めている）
 - 首都高の新旧料金の切り替え（入口を通った日時で判定している）
+- 中央道（高井戸〜八王子）の 630 円上限と深夜割引の関係（割引後の金額に上限を掛けている。
+  上限額そのものからは割り引かない。高めに出る側の解釈）
+
+【ランをまたぐ規則】中央道の上限は「中央道内・都心発着」だけに効き、「都心通過」（NEXCO → 首都高 → NEXCO と
+続けて使う走行）には効かない。都心通過かどうかは前後のランで決まるので、Tariffs.run_fare に直前までの
+ランを渡し、Tariffs.start_run で新しいランを始めるときに、前のランの上限を取り消す。探索はこの判定に使う
+状態（Tariffs.chain_key）を支配判定の鍵に入れる。
 """
 from __future__ import annotations
 
@@ -44,6 +51,7 @@ class RunFare:
     base: int  # 割引前
     fare: int  # 割引後
     discount: str | None = None
+    uncapped: "RunFare | None" = None  # 上限額で安くなったときだけ、上限を外した料金（都心通過で使う）
 
 
 def overlaps(t_in: datetime, t_out: datetime, start: time, hours: float) -> bool:
@@ -149,6 +157,10 @@ class NexcoPool(Pool):
     night_rate: float = 0.30
     night_v2: NightV2 = field(default_factory=NightV2)
     boundary_hours: tuple[int, ...] = (0, 4, 5, 22)
+    # 上限額のある区間（Edge.cap_zone → 円）。ランのすべての区間が同じ区間に入るときだけ、割引後の料金に上限を掛ける。
+    # 例: 中央道 高井戸〜八王子は 630 円（docs/research-fares.md 1-4、[S4]）。上限は min を取るだけなので
+    # 「距離が多いほど高い」は崩れない（探索は区間の距離を cap_zone ごとに分けて比べる）
+    caps: dict[str, int] = field(default_factory=dict)
 
     def _tapered(self, total: float) -> float:
         rest, prev, acc = total, 0.0, 0.0
@@ -161,7 +173,19 @@ class NexcoPool(Pool):
             prev = upto
         return acc
 
-    def run_fare(self, net, entry, exit_, steps):
+    def run_fare(self, net, entry, exit_, steps, capped: bool = True):
+        rf = self._distance_fare(entry, exit_, steps)
+        zones = {s.edge.cap_zone for s in steps}
+        if not capped or len(zones) != 1:
+            return rf
+        cap = self.caps.get(next(iter(zones)))
+        if cap is None or rf.fare <= cap:
+            return rf
+        # 割引後の料金が上限を超えるときだけ上限にする（上限額をさらに割り引くかは未確認。高めに出る側）
+        # （割引前 ≥ 割引後 > 上限 なので、割引前も上限額になる）
+        return RunFare(self.id, entry, exit_, cap, cap, f"{cap} 円上限", rf)
+
+    def _distance_fare(self, entry, exit_, steps):
         total = sum(s.edge.dist_km for s in steps)
         ratio = self._tapered(total) / total if total else 0.0
         by_part = lambda pred: sum(self.rates[s.edge.fare_class] * s.edge.dist_km for s in steps if pred(s.edge)) * ratio
@@ -210,6 +234,9 @@ class NexcoPool(Pool):
             if r_max * (slope - avg) + r_min * avg < -1e-9:
                 raise ValueError(f"{self.id}: 単価 {self.rates} と逓減では、距離が増えると安くなる場合がある（{d}km 付近）")
             d += 0.5
+        for zone, cap in self.caps.items():
+            if not isinstance(cap, int) or cap <= 0:
+                raise ValueError(f"{self.id}: 上限 {zone}={cap!r} は正の整数（円）にする")
 
 
 @dataclass(frozen=True)
@@ -395,15 +422,54 @@ def aqua_gate(gate, direction, t: datetime):
 @dataclass
 class Tariffs:
     pools: dict[str, Pool]
+    # 都心通過の判定に使う料金プール。NEXCO のラン → このプールのラン → 同じ NEXCO プールのラン と続くと、
+    # 両側の NEXCO ランの上限（NexcoPool.caps）は効かない（中央道 高井戸〜八王子、[S4] の「都心通過」）
+    city_pool: str | None = "shutoko"
 
-    def run_fare(self, net: Network, entry: str, exit_: str, steps: list[Step]) -> RunFare:
-        return self.pools[steps[0].edge.pool].run_fare(net, entry, exit_, steps)
+    def _through(self, prior: tuple[RunFare, ...], pool: str) -> bool:
+        """prior の後に pool のランを始めると、都心通過になるか。"""
+        return (self.city_pool is not None and len(prior) >= 2 and prior[-1].pool == self.city_pool
+                and prior[-2].pool == pool and isinstance(self.pools.get(pool), NexcoPool))
+
+    def run_fare(self, net: Network, entry: str, exit_: str, steps: list[Step],
+                 prior: tuple[RunFare, ...] = ()) -> RunFare:
+        """prior はこのランより前のランの料金（start_run で調整したもの）。"""
+        pid = steps[0].edge.pool
+        pool = self.pools[pid]
+        if isinstance(pool, NexcoPool):
+            return pool.run_fare(net, entry, exit_, steps, capped=not self._through(prior, pid))
+        return pool.run_fare(net, entry, exit_, steps)
+
+    def start_run(self, prior: tuple[RunFare, ...], pool: str) -> tuple[tuple[RunFare, ...], int]:
+        """pool の新しいランを始めるときに、都心通過になった前の NEXCO ランの上限を取り消す。
+
+        (調整後の prior, 料金の増分) を返す。
+        """
+        if self._through(prior, pool) and prior[-2].uncapped is not None:
+            old = prior[-2]
+            return prior[:-2] + (old.uncapped, prior[-1]), old.uncapped.fare - old.fare
+        return prior, 0
+
+    def chain_key(self, prior: tuple[RunFare, ...], pool: str):
+        """pool の現在ランの、これから先の料金に効くランをまたぐ状態（探索の支配判定の鍵に入れる）。
+
+        同じ鍵のラベルは、同じ続きで同じ料金の増え方をする。
+        """
+        if self.city_pool is None:
+            return None
+        if pool == self.city_pool and prior and isinstance(self.pools.get(prior[-1].pool), NexcoPool):
+            last = prior[-1]
+            # 次に同じ NEXCO プールへ移ると、last の上限が外れて差額が加わる
+            return (last.pool, last.uncapped.fare - last.fare if last.uncapped is not None else 0)
+        if isinstance(self.pools.get(pool), NexcoPool):
+            return self._through(prior, pool)
+        return None
 
 
 def default_tariffs(od_tables: dict[str, dict[tuple[str, str], int]] | None = None) -> Tariffs:
     """2026-11-23 時点の制度。od_tables は料金表で決まる道路の表（プール ID → 表）。"""
     pools: dict[str, Pool] = {
-        "nexco": NexcoPool(),
+        "nexco": NexcoPool(caps={"chuo_takaido_hachioji": 630}),
         "shutoko": OdDistancePool(
             id="shutoko",
             versions=(
