@@ -250,6 +250,22 @@ def test_later_event_straddling_boundary_keeps_cheaper_route(depart, pool_tail, 
     assert [(p.minutes, p.fare) for p in got] == expected + [(local, 0)]
 
 
+@pytest.mark.parametrize("depart, night_ok, expected_count", [
+    (datetime(2026, 11, 27, 23, 55), False, 3),  # 金曜に入り、遅い方だけ土曜に出る
+    (datetime(2026, 11, 25, 23, 55), True, 3),   # 平日 0 時に達した方だけ深夜割引になる
+    (datetime(2026, 11, 28, 3, 55), True, 2),    # 入口で成立済みの両割引は 4 時を過ぎても消えない
+])
+def test_current_nexco_run_closes_across_boundary(depart, night_ok, expected_count):
+    net = merged_routes("nexco", [Edge("J", "X", "nexco", "NEXCO", 10, 1, night_ok=night_ok)])
+    if not night_ok:
+        for node, edges in net.out.items():
+            net.out[node] = [Edge(e.u, e.v, e.pool, e.road, e.dist_km, e.time_min, night_ok=False) for e in edges]
+    got, stats = assert_same_front(net, default_tariffs(), depart, {"A": 0}, {"X": 0}, 10)
+    assert len(got) == expected_count
+    if expected_count == 2:
+        assert stats["pruned_dominance"] == 1
+
+
 # ---------------------------------------------------------------- T ちょうど・予算ちょうど
 
 

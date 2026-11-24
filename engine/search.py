@@ -9,7 +9,8 @@ docs/algorithm-selection.md の比較で採用した方法。所要時間と料�
 - 料金が切り替わる時刻（深夜割引の 0 時・4 時、アクアラインの時間帯、料金改定日など）を
   これから先にまたぐ可能性があるときは、「早く着く」ことを理由に捨てない（遅いほうが安くなることがある）。
   首都高は後続ランの入口、時刻で料金が変わる料金所は通過時刻だけを調べる（判定が起き得る時刻の範囲に
-  境目がなければ比べてよい）。NEXCO は従来どおり、T までに境目があれば比べない。
+  境目がなければ比べてよい）。現行 NEXCO は後続ランの入口から終了まで、現在ランは終了までの深夜・休日判定を調べる。
+  見直し後の制度が有効になり得るときは、従来の広い判定範囲を使う。
 - 料金所で確定した金額（pending）と、ランの距離（区分ごと）も比べる。距離は「多いほど高い」ことが前提で、
   料金プールの側でその前提を確かめている（tariffs.NexcoPool.validate）。
 - 目的地までの時間下限 h と、これから通る料金所の最低額の和を下限にして、完成案（一般道案を含む）に
@@ -27,8 +28,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from operator import attrgetter
 
+from .calendar import is_nexco_holiday_discount_day
 from .model import Edge, Network
-from .tariffs import OdDistancePool, RunFare, Step, Tariffs
+from .tariffs import NexcoPool, OdDistancePool, RunFare, Step, Tariffs
 
 EPS = 1e-9
 
@@ -153,8 +155,10 @@ class Searcher:
 
         self.reach = {}
         self.events = {}
-        od_pools = {pid for pid in self.timed if isinstance(tariffs.pools[pid], OdDistancePool)}
-        if od_pools:
+        self.nexco = {}
+        entry_events = {pid for pid in self.timed if isinstance(tariffs.pools[pid], OdDistancePool)
+                        or type(tariffs.pools[pid]) is NexcoPool}
+        if entry_events:
             reverse_pool = {}
             previous_pools = {node: (None, *sorted(incoming_pools.get(node, ()))) for node in net.nodes}
             for e in edges:
@@ -165,10 +169,16 @@ class Searcher:
             if pid not in pools or (pid not in self.timed and (not pool.per_gate or pool.gate_time_invariant)):
                 continue
             pool_edges = [e for e in edges if e.pool == pid]
-            if pid in od_pools:
+            if pid in entry_events:
                 seeds = {(e.u, previous): 0.0 for e in pool_edges
                          for previous in previous_pools[e.u] if previous != pid}
-                self.events[pid] = (_reverse_distances(reverse_pool, seeds, time=True), pool_edges, True)
+                entry_dist = _reverse_distances(reverse_pool, seeds, time=True)
+                if type(pool) is NexcoPool:
+                    run_nodes = {e.v for e in pool_edges}
+                    switches = [e for node in run_nodes for e in net.out[node] if e.pool != pid]
+                    self.nexco[pid] = (entry_dist, run_nodes, switches)
+                else:
+                    self.events[pid] = (entry_dist, pool_edges, True)
             elif pool.per_gate:
                 gates = [e for e in pool_edges if e.tollgate]
                 seeds = {e.u: 0.0 for e in gates}
@@ -219,6 +229,14 @@ class Searcher:
         at = lambda m: depart + timedelta(minutes=m)
         legacy_windows = {}
         event_windows = []
+        nexco_closures = {}
+        nexco_entries = []
+
+        def latest_event(remaining):
+            # イベント後の必要時間を下向きに丸め、イベントが起き得る時刻の上限を得る。
+            remaining = math.nextafter(remaining, -math.inf)
+            return min(local_only_min, math.nextafter(local_only_min - remaining + time_error, math.inf))
+
         if exact:
             end = at(local_only_min)
             for pid, dist in self.reach.items():
@@ -229,14 +247,38 @@ class Searcher:
                 # イベントは辺の始点で起きるので、その辺の走行も残り時間に含める。
                 remaining = min((e.time_min + h.get(e.v, math.inf) for e in edges), default=math.inf)
                 if math.isfinite(remaining):
-                    remaining = math.nextafter(remaining, -math.inf)
-                    latest = min(local_only_min, math.nextafter(local_only_min - remaining + time_error, math.inf))
+                    latest = latest_event(remaining)
                     if latest >= 0:
                         boundaries = self.timed.get(pid)
                         last = _last_boundary(at(latest), *boundaries) if boundaries else None
                         # 時刻が変わるか不明な料金所では、到達可能な限り異時刻を比較しない。
                         if boundaries is None or (last is not None and last > depart):
                             event_windows.append((dist, by_pool, latest, last))
+            for pid, (entry_dist, run_nodes, switches) in self.nexco.items():
+                if self.tariffs.pools[pid].night_v2.active(end):
+                    # 見直し後は走行時刻によって割引額が連続的に変わり得る。
+                    legacy_windows[pid] = (None, end)
+                    continue
+                # ランが閉じるのは高速を降りるか、別の料金プールへ移るとき。
+                exit_tail = min((dest_min.get(node, math.inf) for node in run_nodes), default=math.inf)
+                switch_tail = min((e.time_min + h.get(e.v, math.inf) for e in switches), default=math.inf)
+                remaining = min(exit_tail, switch_tail)
+                if math.isinf(remaining):
+                    continue
+                latest = latest_event(remaining)
+                if latest < 0:
+                    continue
+                last_close = at(latest)
+                midnight = _last_boundary(last_close, (0,), ())
+                holiday_change = midnight
+                while holiday_change > depart and is_nexco_holiday_discount_day(holiday_change.date()) == (
+                    is_nexco_holiday_discount_day((holiday_change - timedelta(days=1)).date())
+                ):
+                    holiday_change -= timedelta(days=1)
+                nexco_closures[pid] = (midnight, holiday_change)
+                last = _last_boundary(last_close, (0, 4), ())
+                if last > depart:
+                    nexco_entries.append((entry_dist, latest, last))
         finals = [Plan(local_only_min, 0, None, None)]
         buckets: dict[tuple, list[_Label]] = {}
         pq: list = []
@@ -263,9 +305,24 @@ class Searcher:
                 return (lab.node,)
             # 区間の一覧は、必要な料金プール（見直し後の深夜割引など）だけが呼び出して作る
             st = tariffs.pools[lab.pool].state_key(at(lab.r_tin), at(lab.t), lambda: steps_of(lab, lab.run_len))
-            # 現在ランに効く境界が残る間は、現行の判定では同時刻だけ比較できる。
+            # 現在ランですでに成立した割引条件は、ランを延長しても消えない。
             current_window = legacy_windows.get(lab.pool)
             same_time = lab.t if current_window is not None and at(lab.t) < current_window[1] else None
+            closure = nexco_closures.get(lab.pool)
+            if closure is not None:
+                holiday, night, _ = st
+                midnight, holiday_change = closure
+                now = at(lab.t)
+                if (not night and now < midnight) or (not holiday and now < holiday_change):
+                    same_time = lab.t
+            # 境目をまたぐ後続 NEXCO ランがあり得る間は、異時刻の比較でバケットを膨らませない。
+            if same_time is None and nexco_entries:
+                position = (lab.node, lab.pool)
+                for dist, latest, last in nexco_entries:
+                    earliest = time_lower(lab.t, dist.get(position, math.inf))
+                    if earliest <= latest and at(earliest) < last:
+                        same_time = lab.t
+                        break
             return (lab.node, lab.edge.u, lab.pool, lab.r_entry, st, same_time)
 
         def dominates(a: _Label, b: _Label) -> bool:
@@ -280,7 +337,9 @@ class Searcher:
             if a.t == b.t or not exact:
                 return True
             for pid, (dist, last) in legacy_windows.items():
-                if (a.pool == pid or time_lower(b.t, dist.get(b.node, math.inf)) <= local_only_min) and at(a.t) < last:
+                distance = (dist.get(b.node, math.inf) if dist is not None
+                            else self.nexco[pid][0].get((b.node, b.pool), math.inf))
+                if (a.pool == pid or time_lower(b.t, distance) <= local_only_min) and at(a.t) < last:
                     return False
             for dist, by_pool, latest, last in event_windows:
                 position = (b.node, b.pool) if by_pool else b.node
