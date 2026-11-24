@@ -403,7 +403,8 @@ class Searcher:
             stats["expanded"] += 1
             can_close = lab.pool is not None and lab.node != lab.r_entry
             rf = None
-            if can_close and lab.node in dest_min:
+            node = net.nodes[lab.node]
+            if can_close and lab.node in dest_min and node.permits_exit_from(lab.edge.u):
                 rf = close(lab)
                 arrival, cost = lab.t + dest_min[lab.node], lab.closed + rf.fare
                 if (budget is None or cost <= budget) and not covered(arrival, cost):
@@ -413,6 +414,8 @@ class Searcher:
                     finals[i:j] = [Plan(arrival, cost, lab.entry, lab.node,
                                         tuple(steps_of(lab, _depth(lab))), lab.runs + (rf,))]
             for e in net.out[lab.node]:
+                if lab.edge is None and not node.permits_entry_towards(e.v):
+                    continue
                 if not allowed(lab.edge, e):
                     continue
                 pool = tariffs.pools[e.pool]

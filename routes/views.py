@@ -89,6 +89,15 @@ def _nav_links(points):
     return {"google": "https://www.google.com/maps/dir/?" + urlencode(q)}
 
 
+def _nav_waypoints(entry, junctions, exit_):
+    nodes = [entry]
+    if junctions:
+        nodes.append(junctions[len(junctions) // 2])
+    nodes.append(exit_)
+    # 八王子ICの代表座標は上下線を区別せず、Google マップで大きな折り返しを起こす。
+    return [(node.lat, node.lon) for node in nodes if node.id != "hachioji"]
+
+
 def _plan_json(p, net, depart, o, d, o_name, d_name):
     arrive = depart + timedelta(minutes=p.minutes)
     base = {"minutes": round(p.minutes, 1), "fare": p.fare, "arrive": arrive.strftime("%H:%M")}
@@ -122,12 +131,7 @@ def _plan_json(p, net, depart, o, d, o_name, d_name):
             st["text"] = f"{st['road']}で {st['from']} → {st['to']}（{t0:%H:%M}〜{t1:%H:%M}）"
     steps.append({"kind": "local", "text": f"一般道で {exit_.name} → {d_name}", "minutes": round(from_exit)})
 
-    # 乗る IC、道路が変わる地点（ある場合）、降りる IC を経由地にする。
-    via = [(entry.lat, entry.lon)]
-    if junctions:
-        j = junctions[len(junctions) // 2]
-        via.append((j.lat, j.lon))
-    via.append((exit_.lat, exit_.lon))
+    via = _nav_waypoints(entry, junctions, exit_)
     return {
         **base,
         "entry": entry.name,
@@ -261,7 +265,7 @@ def api_search(request):
             *([provider_note] if provider_note else []),
             provider.description,
             "高速道路の区間の距離は IC 間の直線距離から推定した概算です（公式の距離に置き換え予定）。料金も概算です。",
-            "ナビのボタンは、乗る IC・道路が変わる地点・降りる IC を経由地にしたルートを開きます。一般道の部分の道順は、各アプリの検索結果になります。",
-            "首都圏の「起終点を基本とした料金」、中央道の 630 円上限、IC の乗り降りの方向の制限は未対応です。",
+            "経由地を参考に Google マップが経路を再検索します。表示された経路と料金を出発前に確認してください。",
+            "首都圏の「起終点を基本とした料金」、中央道の 630 円上限は未対応です。出入口の方向制限は首都高の一部に反映しています。",
         ],
     })

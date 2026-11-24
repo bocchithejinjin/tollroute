@@ -180,6 +180,7 @@ function showChosen(index) {
     <div class="nav-actions">
       <a class="button primary" href="${esc(google.href)}" target="_blank" rel="noopener noreferrer">Google マップで開く</a>
     </div>
+    <p class="muted">Google マップで経路を再検索するため、経路や高速代が変わることがあります。</p>
     ${routeDetails(plan)}`;
   $('choices').querySelectorAll('button').forEach((button, candidateIndex) => {
     button.setAttribute('aria-pressed', String(index === candidateIndex));
