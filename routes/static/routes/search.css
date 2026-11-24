@@ -51,7 +51,7 @@ main { padding-block: 1.25rem 3rem; }
 .road-mark::before { inset-inline: .55rem; border-inline: 2px solid var(--on-accent); }
 .road-mark::after { left: calc(50% - 1px); border-left: 2px dashed var(--on-accent); }
 .masthead-tools { display: flex; align-items: center; flex-wrap: wrap; gap: .375rem .75rem; }
-.estimate { display: inline-block; padding: .15rem .6rem; border: var(--border-thin); border-radius: 999px; background: var(--wash); font-size: .8125rem; font-weight: 700; }
+.development-status { display: inline-block; padding: .15rem .6rem; border: var(--border-thin); border-radius: 999px; background: var(--wash); font-size: .8125rem; font-weight: 700; }
 
 /* カード共通 */
 .panel, .chosen { background: var(--white); border: var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -93,13 +93,14 @@ fieldset { min-width: 0; padding: 0; border: 0; margin: 0; }
 .primary { background: var(--accent); color: var(--on-accent); }
 .primary:hover { background: var(--ink); color: var(--white); }
 .search-button { width: 100%; min-height: 56px; margin-top: 1.25rem; font-size: 1.0625rem; border-width: 3px; }
-.form-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .25rem 1rem; margin-top: .75rem; color: var(--muted); font-size: .875rem; }
+.forget-button { display: block; margin: .75rem 0 0 auto; }
 .muted { color: var(--muted); font-size: .875rem; }
 .text-button { min-height: 44px; background: none; border: 0; color: var(--accent); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; padding-inline: .25rem; }
 
 /* お知らせ */
 .notice { padding: .75rem 1rem; border-radius: .875rem; background: var(--white); border: var(--border-thin); font-size: .875rem; font-weight: 700; margin-top: .875rem; }
 .warning { background: var(--warning-bg); color: var(--warning-ink); }
+.coverage-notice { margin: 0 0 1rem; }
 
 /* 結果 */
 .decision { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; gap: 1.5rem; margin-top: 1.125rem; }
@@ -133,11 +134,10 @@ fieldset { min-width: 0; padding: 0; border: 0; margin: 0; }
 .step-badge { flex: 0 0 auto; display: grid; place-items: center; width: 2rem; height: 2rem; border: var(--border-thin); border-radius: 50%; background: var(--white); color: var(--ink); font-family: var(--font-num); font-weight: 800; line-height: 1; }
 .highway > .step-badge { background: var(--accent-soft); }
 
-.nav-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .75rem; margin-block: 1.125rem .5rem; }
+.nav-actions { display: grid; margin-block: 1.125rem .5rem; }
 .nav-actions .button { min-height: 52px; border-width: 3px; box-shadow: 4px 4px 0 var(--ink); }
 .nav-actions .button:active { transform: translate(4px, 4px); box-shadow: none; }
 .nav-actions a::after { content: "\2197" / ""; flex: 0 0 auto; display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border: 2px solid currentColor; border-radius: 50%; font-size: .8125rem; line-height: 1; }
-.nav-hint { color: var(--muted); font-size: .8125rem; }
 .route-details { margin-top: .75rem; border-top: 3px dotted var(--muted); }
 .route-details summary { display: flex; align-items: center; padding-block: .65rem; min-height: 44px; font-weight: 700; font-size: .9375rem; }
 .route-details ol { margin: 0 0 .5rem; padding: 0; list-style: none; }

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 from django.db import connection
 from django.http import JsonResponse
@@ -81,19 +81,12 @@ def _search(searcher, depart, times):
 
 
 def _nav_links(points):
-    """points: [(緯度, 経度, 名前), ...]（出発地・経由地・目的地）。Google マップと Yahoo!カーナビの URL を作る。
-
-    - Google マップ: Maps URLs（https://developers.google.com/maps/documentation/urls/get-started）
-    - Yahoo!カーナビ: URL スキーム（https://map.yahoo.co.jp/blog/archives/20150202_carnavischeme.html）。地点は 5 つまで
-    """
+    """出発地・経由地・目的地の座標から Google マップの経路リンクを作る。"""
     ll = lambda p: f"{p[0]:.6f},{p[1]:.6f}"
     q = {"api": "1", "origin": ll(points[0]), "destination": ll(points[-1]), "travelmode": "driving"}
     if len(points) > 2:
         q["waypoints"] = "|".join(ll(p) for p in points[1:-1])
-    google = "https://www.google.com/maps/dir/?" + urlencode(q)
-    yahoo = "yjcarnavi://navi/select?" + "&".join(
-        "point=" + quote(f"{ll(p)},{p[2]}", safe=",") for p in points[:5])
-    return {"google": google, "yahoo": yahoo}
+    return {"google": "https://www.google.com/maps/dir/?" + urlencode(q)}
 
 
 def _plan_json(p, net, depart, o, d, o_name, d_name):
@@ -102,7 +95,7 @@ def _plan_json(p, net, depart, o, d, o_name, d_name):
     if p.entry is None:
         return {**base, "entry": None, "exit": None, "runs": [], "roads": [],
                 "steps": [{"kind": "local", "text": f"一般道で {o_name} → {d_name}", "minutes": round(p.minutes)}],
-                "nav": _nav_links([(o[0], o[1], o_name), (d[0], d[1], d_name)])}
+                "nav": _nav_links([o, d])}
 
     entry, exit_ = net.nodes[p.entry], net.nodes[p.exit]
     first, last = p.steps[0], p.steps[-1]
@@ -129,12 +122,12 @@ def _plan_json(p, net, depart, o, d, o_name, d_name):
             st["text"] = f"{st['road']}で {st['from']} → {st['to']}（{t0:%H:%M}〜{t1:%H:%M}）"
     steps.append({"kind": "local", "text": f"一般道で {exit_.name} → {d_name}", "minutes": round(from_exit)})
 
-    # ナビに渡す地点: 出発地・乗る IC・(道路が変わる地点を 1 つ)・降りる IC・目的地（Yahoo!カーナビは 5 地点まで）
-    via = [(entry.lat, entry.lon, entry.name)]
+    # 乗る IC、道路が変わる地点（ある場合）、降りる IC を経由地にする。
+    via = [(entry.lat, entry.lon)]
     if junctions:
         j = junctions[len(junctions) // 2]
-        via.append((j.lat, j.lon, j.name))
-    via.append((exit_.lat, exit_.lon, exit_.name))
+        via.append((j.lat, j.lon))
+    via.append((exit_.lat, exit_.lon))
     return {
         **base,
         "entry": entry.name,
@@ -146,7 +139,7 @@ def _plan_json(p, net, depart, o, d, o_name, d_name):
         "runs": [{"pool": POOL_LABEL.get(r.pool, r.pool), "entry": net.nodes[r.entry].name,
                   "exit": net.nodes[r.exit].name, "base": r.base, "fare": r.fare, "discount": r.discount}
                  for r in p.runs],
-        "nav": _nav_links([(o[0], o[1], o_name), *via, (d[0], d[1], d_name)]),
+        "nav": _nav_links([o, *via, d]),
     }
 
 

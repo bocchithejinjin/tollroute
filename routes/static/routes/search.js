@@ -179,9 +179,7 @@ function showChosen(index) {
     ${routeFlow(plan)}
     <div class="nav-actions">
       <a class="button primary" href="${esc(google.href)}" target="_blank" rel="noopener noreferrer">Google マップで開く</a>
-      <a class="button secondary" href="${esc(plan.nav.yahoo)}">Yahoo!カーナビで開く</a>
     </div>
-    ${plan.entry ? '' : '<p class="nav-hint">Yahoo!カーナビでは「一般優先」を選んでください。</p>'}
     ${routeDetails(plan)}`;
   $('choices').querySelectorAll('button').forEach((button, candidateIndex) => {
     button.setAttribute('aria-pressed', String(index === candidateIndex));
@@ -234,8 +232,7 @@ function render(data, query) {
         aria-label="${yen(plan.fare)}の予算で探す">${yen(plan.fare)}</button>
     </li>`;
   }).join('');
-  $('notes').innerHTML = data.notes.map((note) => `<li>${esc(note)}</li>`).join('') +
-    '<li>Yahoo!カーナビを開くには、スマートフォンにアプリが必要です。</li>';
+  $('notes').innerHTML = data.notes.map((note) => `<li>${esc(note)}</li>`).join('');
 }
 
 async function search(query, {interactive = false} = {}) {

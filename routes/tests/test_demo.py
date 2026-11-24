@@ -1,7 +1,23 @@
 def test_index(client):
     res = client.get("/", HTTP_HOST="localhost")
     assert res.status_code == 200
-    assert "予算内最速ルート" in res.content.decode()
+    html = res.content.decode()
+    assert "予算内最速ルート" in html
+    assert ">開発中</span>" in html
+    assert "横浜〜新宿周辺のデモ道路網に対応しています。料金・所要時間は概算です。" in html
+
+
+def test_index_link_preview_uses_public_origin(client, settings):
+    settings.ALLOWED_HOSTS = [".trycloudflare.com"]
+    settings.SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    response = client.get("/?source=chat", HTTP_HOST="demo.trycloudflare.com", HTTP_X_FORWARDED_PROTO="https")
+
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert 'property="og:title" content="高速代の予算内最速ルート | tollroute"' in html
+    assert 'property="og:description"' in html
+    assert 'property="og:url" content="https://demo.trycloudflare.com/"' in html
+    assert 'property="og:image" content="https://demo.trycloudflare.com/static/routes/link-preview.png"' in html
 
 
 def test_search_weekday_noon(client):
@@ -64,10 +80,9 @@ def test_options_with_value(client):
     assert "いちばんお得" in labels
     best_value = min(p["yen_per_min"] for p in data["front"] if p["yen_per_min"] is not None and p["fare"] <= 1600)
     assert next(o for o in opts if o["label"] == "いちばんお得")["yen_per_min"] == best_value
-    for o in opts:
-        assert o["nav"]["google"].startswith("https://www.google.com/maps/dir/?api=1")
-        assert o["nav"]["yahoo"].startswith("yjcarnavi://navi/select?point=")
-        assert o["nav"]["yahoo"].count("point=") <= 5
+    for plan in [*opts, data["local_only"]]:
+        assert set(plan["nav"]) == {"google"}
+        assert plan["nav"]["google"].startswith("https://www.google.com/maps/dir/?api=1")
 
 
 def test_zero_budget_has_no_options(client):
