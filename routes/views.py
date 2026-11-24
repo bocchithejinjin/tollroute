@@ -1,3 +1,4 @@
+import os
 import threading
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
@@ -14,7 +15,7 @@ from engine.search import Searcher, pick
 from . import demo, google_routes
 from .ratelimit import limited
 from .geocode import STATION_LEVEL, GeocoderUnavailable, geocode
-from .travel import EstimateProvider, TravelTimeError, get_provider
+from .travel import EstimateProvider, OsrmProvider, TravelTimeError, get_provider
 
 POOL_LABEL = {"nexco": "NEXCO", "shutoko": "首都高", "daisan_keihin": "第三京浜", "yokohama_shindo": "横浜新道",
               "aqualine": "アクアライン"}
@@ -205,7 +206,8 @@ def choose_options(front, budget: int, n: int = 5):
     return sorted(chosen[:n], key=lambda lp: (lp[1].minutes, lp[1].fare))
 
 
-GOOGLE_HINTS = 5  # 経由地を指定して Google に問い合わせる案の数（1 回の検索で最大 2 + この数の問い合わせ）
+# Google で確かめる自作エンジンの案の数。1 回の検索の問い合わせは最大 2 + 3 × この数
+GOOGLE_HINTS = int(os.environ.get("GOOGLE_ROUTES_HINTS", "4"))
 
 
 def _junctions(p, net):
@@ -218,8 +220,30 @@ def _junctions(p, net):
     return found
 
 
-def google_hints(front, net, budget, n=GOOGLE_HINTS):
-    """自作エンジンの候補から、Google に経由地として渡す「乗る IC・降りる IC」の案を最大 n 個選ぶ。
+_local_side_cache: dict[str, tuple[float, float] | None] = {}
+
+
+def local_side(provider, nodes):
+    """IC のそばの、有料道路を使わずに行ける一般道の地点（OSRM で求める）。求められなければ None。
+
+    IC の座標は高速の本線上にあるので、そのまま Google に渡すと本線の途中から乗り降りすることになり、
+    料金が出ない・指定した IC で降りない経路になる。
+    """
+    todo = [n for n in nodes if n.id not in _local_side_cache]
+    if todo and isinstance(provider, OsrmProvider):
+        try:
+            access = provider.access_points([(n.lat, n.lon) for n in todo])
+            for node, (lat, lon) in zip(todo, access):
+                found = provider._get(f"/nearest/v1/driving/{lon:.6f},{lat:.6f}?number=1&exclude=toll")
+                lon2, lat2 = found["waypoints"][0]["location"]
+                _local_side_cache[node.id] = (lat2, lon2)
+        except (TravelTimeError, KeyError, IndexError):
+            return {}
+    return {n.id: _local_side_cache[n.id] for n in nodes if _local_side_cache.get(n.id)}
+
+
+def google_hints(front, net, budget, depart, provider, n=GOOGLE_HINTS):
+    """自作エンジンの候補から、Google で確かめる「乗る IC・降りる IC」の案（google_routes.Hint）を最大 n 個選ぶ。
 
     Google 自身の候補は「全部高速」か「高速なし」に偏るので、中間の料金の案を幅広く選ぶ。
     エンジンの料金は概算なので、予算を少し超える案も確かめる。
@@ -228,25 +252,27 @@ def google_hints(front, net, budget, n=GOOGLE_HINTS):
     plans = [p for p in front if p.entry is not None and p.fare <= limit]
     plans.sort(key=lambda p: (p.fare, p.minutes))
     picked = [p for _, p in choose_options(front, budget)]
-    if len(plans) > n:
-        spread = [plans[round(i * (len(plans) - 1) / (n - 1))] for i in range(n)]
-    else:
-        spread = plans
-    hints, seen = [], set()
+    spread = [plans[round(i * (len(plans) - 1) / (n - 1))] for i in range(n)] if len(plans) > n else plans
+    chosen, seen = [], set()
     for p in [*picked, *spread]:
         junctions = _junctions(p, net)
         key = (p.entry, p.exit, tuple(j.id for j in junctions))
-        if key in seen:
+        if key not in seen:
+            seen.add(key)
+            chosen.append((p, junctions))
+    chosen = chosen[:n]
+    sides = local_side(provider, [net.nodes[x] for p, _ in chosen for x in (p.entry, p.exit)])
+    hints = []
+    for p, junctions in chosen:
+        if p.entry not in sides or p.exit not in sides:
             continue
-        seen.add(key)
         entry, exit_ = net.nodes[p.entry], net.nodes[p.exit]
-        roads = list(dict.fromkeys(s.edge.road for s in p.steps))
-        via = tuple(_nav_waypoints(entry, junctions, exit_))
-        if not via:
-            continue
-        hints.append((via, {"entry": entry.name, "exit": exit_.name, "roads": roads, "engine_fare": p.fare}))
-        if len(hints) >= n:
-            break
+        hints.append(google_routes.Hint(
+            sides[p.entry], sides[p.exit], tuple((j.lat, j.lon) for j in junctions),
+            to_exit_min=round((p.steps[-1].t1 - depart).total_seconds() / 60),
+            info={"entry": entry.name, "exit": exit_.name,
+                  "roads": list(dict.fromkeys(s.edge.road for s in p.steps)), "engine_fare": p.fare},
+        ))
     return hints
 
 
@@ -308,16 +334,17 @@ def _google_search(search_input, o, d, depart, hints_for):
         hints = []  # エンジンの案が作れなくても、Google 自身の候補は出す。
     try:
         candidates, low_cost_search_failed = google_routes.search_candidates(
-            settings.GOOGLE_ROUTES_API_KEY, o, d, departure_time, hints=hints,
+            settings.GOOGLE_ROUTES_API_KEY, o, d, depart if departure_time else None, hints=hints, now=now,
         )
     except google_routes.GoogleRoutesError:
-        return JsonResponse({"error": "Google の経路を取得できませんでした。時間をおいてお試しください。"}, status=502)
+        return None  # 呼び出し元が自作エンジンの結果で答える
 
     def describe(candidate):
         hint = candidate.hint
         if not hint:
             return candidate.description
-        return f"{hint['entry']} → {hint['exit']}（{'・'.join(hint['roads'])}）"
+        # 道路名は Google が実際に返した経路のもの（指定した IC の手前で降りる経路になることもある）
+        return f"{hint['entry']} から乗る案 · {candidate.description}"
 
     routes = [{
         "description": describe(candidate),
@@ -381,10 +408,13 @@ def api_search(request):
         google_note = "今日の Google での確認回数の上限に達したため、自作エンジンの概算で表示しています。"
     elif settings.GOOGLE_ROUTES_API_KEY:
         def hints_for(when):
-            _, _, times = _local_times_with_fallback(net, o, d)
-            return google_hints(_search(searcher, when, times), net, budget)
+            provider, _, times = _local_times_with_fallback(net, o, d)
+            return google_hints(_search(searcher, when, times), net, budget, when, provider)
 
-        return _google_search(search_input, o, d, depart, hints_for)
+        response = _google_search(search_input, o, d, depart, hints_for)
+        if response is not None:
+            return response
+        google_note = "Google の経路を取得できなかったため（利用上限・通信エラーなど）、自作エンジンの概算で表示しています。"
 
     if depart is None:
         depart = datetime.now().replace(second=0, microsecond=0)

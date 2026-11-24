@@ -119,47 +119,102 @@ def pareto(candidates):
     return front
 
 
-def search_candidates(api_key, origin, destination, departure_time, *, hints=()):
-    """Google の候補と、経由地を指定した候補をまとめて返す。
+@dataclass(frozen=True)
+class Hint:
+    """自作エンジンの案: 乗る IC・降りる IC のそばの一般道の地点と、高速区間で通る JCT。"""
+    entry: tuple[float, float]
+    exit: tuple[float, float]
+    junctions: tuple[tuple[float, float], ...] = ()
+    to_exit_min: float = 0.0  # エンジンが見積もった、出発から降りる IC までの時間（3 区間目の出発時刻に使う）
+    info: dict = field(default_factory=dict, compare=False, hash=False)
 
-    hints: [(経由地の座標の列, 説明用の dict), ...]（自作エンジンが選んだ乗り降りの IC）。
+
+def _rfc3339(when):
+    return when.isoformat(timespec="seconds") if when is not None else None
+
+
+def _first(found):
+    return found[0] if isinstance(found, list) and found else None
+
+
+def _join(hint, legs):
+    """3 区間の結果を 1 つの候補にする。一般道の区間で有料道路を使った結果は、その案になっていないので捨てる。"""
+    first, middle, last = legs
+    if first is None or middle is None or last is None:
+        return None
+    if first.fare != 0 or last.fare != 0 or middle.fare == 0:
+        return None
+    return Candidate(
+        first.seconds + middle.seconds + last.seconds, middle.fare,
+        first.distance + middle.distance + last.distance, middle.description,
+        "|".join((first.polyline, middle.polyline, last.polyline)),
+        (hint.entry, *hint.junctions, hint.exit), hint.info,
+    )
+
+
+def search_candidates(api_key, origin, destination, departure, *, hints=(), now=None):
+    """Google の候補と、自作エンジンの案（乗り降りの IC を指定）を Google で確かめた候補をまとめて返す。
+
+    departure: 出発日時（タイムゾーン付き）。None は「今すぐ」（now を基準に区間の出発時刻を決める）。
+    案ごとに「出発地 → 乗る IC のそばの一般道」「乗る IC → 降りる IC」「降りる IC のそば → 目的地」の 3 区間に分け、
+    一般道の区間は有料道路を避けて問い合わせる。1 回の経路にまとめると、降りる IC を通ったあとも
+    Google が高速を乗り継いでしまい、指定した案にならないため。
     戻り値: (候補（所要時間順。料金の分かる候補は互いに優劣のないものだけ）, 有料回避の検索に失敗したか)
     """
-    jobs = [("normal", make_request(origin, destination, departure_time), (), None),
-            ("free", make_request(origin, destination, departure_time, avoid_tolls=True), (), None)]
-    jobs += [("via", make_request(origin, destination, departure_time, via=via), via, hint)
-             for via, hint in hints]
+    from datetime import timedelta
 
-    def run(job):
-        kind, payload, via, hint = job
+    base = departure or now
+    start = _rfc3339(departure)
+
+    def call(payload, **kwargs):
         try:
-            return kind, compute_routes(api_key, payload, via=via, hint=hint)
+            return compute_routes(api_key, payload, **kwargs)
         except GoogleRoutesError as exc:
-            return kind, exc
+            return exc
 
+    def single(a, b, when, *, avoid_tolls=False, via=()):
+        payload = make_request(a, b, _rfc3339(when), avoid_tolls=avoid_tolls, via=via)
+        payload["computeAlternativeRoutes"] = False
+        return call(payload)
+
+    entries = sorted({h.entry for h in hints})
+    exits = sorted({(h.exit, h.to_exit_min) for h in hints})
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as pool:
-        results = list(pool.map(run, jobs))
+        # 1 回目: Google 自身の候補と、一般道の区間（乗る IC まで・降りる IC から）
+        normal = pool.submit(call, make_request(origin, destination, start))
+        free = pool.submit(call, make_request(origin, destination, start, avoid_tolls=True))
+        to_entry = {e: pool.submit(single, origin, e, departure, avoid_tolls=True) for e in entries}
+        from_exit = {(x, m): pool.submit(single, x, destination,
+                                         base + timedelta(minutes=m) if base else None, avoid_tolls=True)
+                     for x, m in exits}
+        to_entry = {k: _first(f.result()) for k, f in to_entry.items()}
+        from_exit = {k: _first(f.result()) for k, f in from_exit.items()}
+        # 2 回目: 高速の区間。乗る時刻で料金（深夜・休日割引など）が変わるので、実際に乗る時刻で問い合わせる
+        middle = {}
+        for hint in hints:
+            first = to_entry.get(hint.entry)
+            if first is None or from_exit.get((hint.exit, hint.to_exit_min)) is None:
+                continue
+            when = base + timedelta(seconds=float(first.seconds)) if base else None
+            middle[hint] = pool.submit(single, hint.entry, hint.exit, when, via=hint.junctions)
+        middle = {k: _first(f.result()) for k, f in middle.items()}
+        normal, free = normal.result(), free.result()
 
-    normal = results[0][1]
     if isinstance(normal, GoogleRoutesError):
         raise normal
-    low_cost_search_failed = isinstance(results[1][1], GoogleRoutesError)
-    candidates = list(normal)
-    for kind, found in results[1:]:
-        if isinstance(found, GoogleRoutesError):
-            continue  # 補助の候補が取れなくても、通常の候補は返す。
-        if kind == "via":
-            # 経由地の IC を一般道で素通りした（高速に乗らなかった）結果は、指定した案になっていない。
-            found = [c for c in found if c.fare != 0]
-        candidates += found
+    low_cost_search_failed = isinstance(free, GoogleRoutesError)
+    candidates = list(normal) + ([] if low_cost_search_failed else list(free))
+    for hint, mid in middle.items():
+        joined = _join(hint, (to_entry[hint.entry], mid, from_exit[(hint.exit, hint.to_exit_min)]))
+        if joined is not None:
+            candidates.append(joined)
 
     unique = {}
     for candidate in candidates:
-        # 同じ経路が複数の問い合わせで返る場合は、料金が分かる・経由地のない（Google 自身の）結果を優先する。
+        # 同じ経路が複数の問い合わせで返る場合は、料金が分かる結果を優先する。
         key = candidate.polyline or candidate
         current = unique.get(key)
-        if current is None or (current.fare is None and candidate.fare is not None) or (
-                current.via and not candidate.via and candidate.fare is not None):
+        if current is None or (current.fare is None and candidate.fare is not None):
             unique[key] = candidate
     front = pareto(unique.values())
     # 料金が不明な候補は、料金の分かる最速の候補より速いときだけ残す（参考として表示する）。
