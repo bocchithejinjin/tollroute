@@ -12,7 +12,11 @@ docs/algorithm-selection.md の比較で採用した方法。所要時間と料�
   境目がなければ比べてよい）。現行 NEXCO は後続ランの入口から終了まで、現在ランは終了までの深夜・休日判定を調べる。
   見直し後の制度が有効になり得るときは、従来の広い判定範囲を使う。
 - 料金所で確定した金額（pending）と、ランの距離（区分ごと）も比べる。距離は「多いほど高い」ことが前提で、
-  料金プールの側でその前提を確かめている（tariffs.NexcoPool.validate）。
+  料金プールの側でその前提を確かめている（tariffs.NexcoPool.validate）。上限額のある区間（Edge.cap_zone、
+  中央道 高井戸〜八王子の 630 円）は区分を分けて距離を数える。上限は区間の外を走ると外れるが、外を走った距離が
+  0 のラベルだけがそうでないラベルを捨てられるので、この比べ方で正しい。
+- 都心通過（NEXCO → 首都高 → NEXCO）では前の NEXCO ランの上限が後から外れる。そのための状態
+  （tariffs.Tariffs.chain_key）は支配判定の鍵に入れ、同じ状態のラベルどうしだけを比べる。
 - 目的地までの時間下限 h と、これから通る料金所の最低額の和を下限にして、完成案（一般道案を含む）に
   時間・料金とも及ばないラベルを捨てる。浮動小数点の加算順の違いは時間下限を誤差の分だけ小さくして吸収する。
 
@@ -297,7 +301,7 @@ class Searcher:
             return out[::-1]
 
         def close(lab: _Label) -> RunFare:
-            return tariffs.run_fare(net, lab.r_entry, lab.node, steps_of(lab, lab.run_len))
+            return tariffs.run_fare(net, lab.r_entry, lab.node, steps_of(lab, lab.run_len), lab.runs)
 
         def key(lab: _Label):
             # 来た方向（直前のノード）も鍵に入れる。U ターン禁止で、来た方向によって進める先が変わるため
@@ -323,7 +327,9 @@ class Searcher:
                     if earliest <= latest and at(earliest) < last:
                         same_time = lab.t
                         break
-            return (lab.node, lab.edge.u, lab.pool, lab.r_entry, st, same_time)
+            # ランをまたぐ料金の規則（中央道の上限と都心通過）の状態も鍵に入れ、同じ状態どうしだけを比べる
+            chain = tariffs.chain_key(lab.runs, lab.pool)
+            return (lab.node, lab.edge.u, lab.pool, lab.r_entry, st, same_time, chain)
 
         def dominates(a: _Label, b: _Label) -> bool:
             if a.t > b.t + (0 if exact else EPS) or a.closed + a.pending > b.closed + b.pending:
@@ -419,7 +425,7 @@ class Searcher:
                 if not allowed(lab.edge, e):
                     continue
                 pool = tariffs.pools[e.pool]
-                kk = (e.fare_class, e.holiday_ok, e.night_ok)
+                kk = (e.fare_class, e.holiday_ok, e.night_ok, e.cap_zone or "")
                 gate = pool.gate_fare_at(e, at(lab.t)) if pool.per_gate else 0
                 if lab.pool == e.pool:
                     km = dict(lab.km)
@@ -435,6 +441,8 @@ class Searcher:
                         if rf is None:
                             rf = close(lab)
                         closed, runs = closed + rf.fare, runs + (rf,)
+                    runs, extra = tariffs.start_run(runs, e.pool)
+                    closed += extra
                     km = ((kk, e.dist_km),) if pool.distance_matters else ()
                     nl = _Label(e.v, lab.t + e.time_min, closed, gate, runs, e.pool, lab.node, lab.t, 1, km,
                                 lab.entry, lab, e)
