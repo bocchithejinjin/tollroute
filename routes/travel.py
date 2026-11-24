@@ -4,8 +4,10 @@
 - osrm（既定）: 手元の OSRM（関東のグラフ、`exclude=toll`）に問い合わせる。接続できなければ estimate に切り替える
 - estimate: 直線距離 × 1.3 ÷ 時速 20km の概算（外部に何も送らない）
 
-OSRM の時間は渋滞のない状態の値なので、都市部の混雑を見込んで LOCAL_CONGESTION_FACTOR（既定 1.8）倍する。
-郊外も都心も同じ係数を掛ける粗い補正（docs/routing-eval.md）。
+OSRM の時間は渋滞や信号待ちのない値で、都市部では実際の 2〜3 倍速く出る。そこで既定では、OSRM の経路の距離を
+道路交通センサスの地域別・時間帯別の平均旅行速度で割って所要時間にする（routes/speed.py、docs/local-speed-model.md）。
+住所辞書がないとき、または LOCAL_SPEED_MODEL=factor のときは、従来どおり OSRM の時間を
+LOCAL_CONGESTION_FACTOR（既定 1.8）倍する（郊外も都心も同じ係数の粗い補正）。
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ import math
 import os
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta
 from typing import Protocol
 
 LatLon = tuple[float, float]
@@ -79,10 +82,28 @@ class OsrmProvider:
         self.factor = factor if factor is not None else float(os.environ.get("LOCAL_CONGESTION_FACTOR", "1.8"))
         self.timeout = timeout
         self._access: dict[tuple[float, float], LatLon] = {}
-        self.description = (
-            f"一般道の所要時間は、OpenStreetMap の道路データから OSRM で求めた時間（渋滞なし）に、"
-            f"混雑を見込んで {self.factor:g} 倍した目安です。"
-        )
+        self.speed_model = None
+        if os.environ.get("LOCAL_SPEED_MODEL", "census") != "factor":
+            from .speed import default_model
+
+            model = default_model()
+            self.speed_model = model if model.available else None
+        self.when = self.dest_when = None
+        if self.speed_model is not None:
+            self.description = (
+                "一般道の所要時間は、OpenStreetMap の道路データから OSRM で求めた経路の距離を、"
+                "道路交通センサス（令和3年度）の地域別・時間帯別の平均旅行速度で割った目安です。"
+            )
+        else:
+            self.description = (
+                f"一般道の所要時間は、OpenStreetMap の道路データから OSRM で求めた時間（渋滞なし）に、"
+                f"混雑を見込んで {self.factor:g} 倍した目安です。"
+            )
+
+    def at(self, when: datetime | None, dest_when: datetime | None = None) -> "OsrmProvider":
+        """出発地からの区間を when、目的地への区間を dest_when（省略時は when）に走るとして見積もる。"""
+        self.when, self.dest_when = when, dest_when or when
+        return self
 
     # ---------------------------------------------------------------- HTTP
     def _get(self, path: str) -> dict:
@@ -104,6 +125,28 @@ class OsrmProvider:
         q = (f"/table/v1/driving/{self._coords(points)}?exclude=toll&annotations=duration"
              f"&sources={';'.join(map(str, sources))}&destinations={';'.join(map(str, destinations))}")
         return self._get(q)["durations"]
+
+    def _minutes(self, points: list[LatLon], pairs: list[tuple[int, int]], when) -> list[float | None]:
+        """points の (始点, 終点) の組ごとの所要時間（分）。"""
+        sources = sorted({a for a, _ in pairs})
+        destinations = sorted({b for _, b in pairs})
+        q = (f"/table/v1/driving/{self._coords(points)}?exclude=toll&annotations=duration,distance"
+             f"&sources={';'.join(map(str, sources))}&destinations={';'.join(map(str, destinations))}")
+        data = self._get(q)
+        out = []
+        for a, b in pairs:
+            i, j = sources.index(a), destinations.index(b)
+            sec = data["durations"][i][j]
+            if sec is None:
+                out.append(None)
+            elif self.speed_model is None:
+                out.append(self._scale(sec))
+            else:
+                km = (data.get("distances") or [[None]])[i][j]
+                km = km / 1000 if km is not None else _km(points[a], points[b]) * 1.3
+                when = when or datetime.now()
+                out.append(self.speed_model.minutes(points[a], points[b], km, sec / 60, when))
+        return out
 
     # ---------------------------------------------------------------- IC の出入り口
     def access_points(self, points: list[LatLon]) -> list[LatLon]:
@@ -139,17 +182,15 @@ class OsrmProvider:
 
     def from_origin(self, origin, points):
         acc = self.access_points(points)
-        row = self._table([origin, *acc], [0], list(range(1, len(acc) + 1)))[0]
-        return [self._scale(s) for s in row]
+        return self._minutes([origin, *acc], [(0, i) for i in range(1, len(acc) + 1)], self.when)
 
     def to_dest(self, points, dest):
         acc = self.access_points(points)
         n = len(acc)
-        rows = self._table([*acc, dest], list(range(n)), [n])
-        return [self._scale(r[0]) for r in rows]
+        return self._minutes([*acc, dest], [(i, n) for i in range(n)], self.dest_when)
 
     def between(self, a, b):
-        return self._scale(self._table([a, b], [0], [1])[0][0])
+        return self._minutes([a, b], [(0, 1)], self.when)[0]
 
 
 def get_provider() -> TravelTimeProvider:
