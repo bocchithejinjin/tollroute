@@ -6,3 +6,4 @@ data/
 data-routing-run.log
 .devcontainer/.env
 .env
+.claude/worktrees/
