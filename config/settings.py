@@ -36,6 +36,22 @@ CSRF_TRUSTED_ORIGINS = [f"https://*{h}" if h.startswith(".") else f"https://{h}"
 ENABLE_ADMIN = os.environ.get("ENABLE_ADMIN", "true" if DEBUG else "false").strip().lower() in {"1", "true", "yes", "on"}
 # 検索 API の回数制限（1 つの接続元から 1 分あたり）
 SEARCH_RATE_LIMIT_PER_MIN = int(os.environ.get("SEARCH_RATE_LIMIT_PER_MIN", "30"))
+
+
+def _google_routes_api_key() -> str:
+    """Google Routes API のキー: 環境変数 → GOOGLE_ROUTES_API_KEY_FILE（あれば）。どちらもなければ使わない。"""
+    if os.environ.get("GOOGLE_ROUTES_API_KEY", "").strip():
+        return os.environ["GOOGLE_ROUTES_API_KEY"].strip()
+    path = os.environ.get("GOOGLE_ROUTES_API_KEY_FILE", "").strip()
+    if path and Path(path).is_file():
+        return Path(path).read_text(encoding="utf-8").strip()
+    return ""
+
+
+# 設定すると、経路の所要時間と ETC 料金を Google Routes API で確かめるモードになる（docs/google-routes.md）
+GOOGLE_ROUTES_API_KEY = _google_routes_api_key()
+# Google を使う検索の 1 日（日本時間）あたりの上限（ワーカーごと）。超えたら自作エンジンだけで答える。0 で無制限
+GOOGLE_ROUTES_DAILY_SEARCHES = int(os.environ.get("GOOGLE_ROUTES_DAILY_SEARCHES", "30"))
 # tailscale serve は HTTPS を受けて HTTP で中継する
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if EXTRA_ALLOWED_HOSTS else None
 

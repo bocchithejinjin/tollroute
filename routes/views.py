@@ -1,6 +1,9 @@
+import threading
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import connection
 from django.http import JsonResponse
 from django.shortcuts import render
@@ -8,7 +11,7 @@ from django.views.decorators.http import require_GET
 
 from engine.search import Searcher, pick
 
-from . import demo
+from . import demo, google_routes
 from .ratelimit import limited
 from .geocode import STATION_LEVEL, GeocoderUnavailable, geocode
 from .travel import EstimateProvider, TravelTimeError, get_provider
@@ -29,7 +32,9 @@ def health(request):
 @require_GET
 def index(request):
     places = [{"id": k, "name": v[0]} for k, v in demo.PLACES.items()]
-    return render(request, "routes/index.html", {"places": places, "source": demo.SOURCE})
+    return render(request, "routes/index.html", {
+        "places": places, "source": demo.SOURCE, "google_routes": bool(settings.GOOGLE_ROUTES_API_KEY),
+    })
 
 
 def _point(value: str):
@@ -200,13 +205,162 @@ def choose_options(front, budget: int, n: int = 5):
     return sorted(chosen[:n], key=lambda lp: (lp[1].minutes, lp[1].fare))
 
 
+GOOGLE_HINTS = 5  # 経由地を指定して Google に問い合わせる案の数（1 回の検索で最大 2 + この数の問い合わせ）
+
+
+def _junctions(p, net):
+    """道路が変わる地点（JCT など）のノード。"""
+    found, previous = [], None
+    for s in p.steps:
+        if previous is not None and s.edge.road != previous:
+            found.append(net.nodes[s.edge.u])
+        previous = s.edge.road
+    return found
+
+
+def google_hints(front, net, budget, n=GOOGLE_HINTS):
+    """自作エンジンの候補から、Google に経由地として渡す「乗る IC・降りる IC」の案を最大 n 個選ぶ。
+
+    Google 自身の候補は「全部高速」か「高速なし」に偏るので、中間の料金の案を幅広く選ぶ。
+    エンジンの料金は概算なので、予算を少し超える案も確かめる。
+    """
+    limit = budget * 1.5 + 500
+    plans = [p for p in front if p.entry is not None and p.fare <= limit]
+    plans.sort(key=lambda p: (p.fare, p.minutes))
+    picked = [p for _, p in choose_options(front, budget)]
+    if len(plans) > n:
+        spread = [plans[round(i * (len(plans) - 1) / (n - 1))] for i in range(n)]
+    else:
+        spread = plans
+    hints, seen = [], set()
+    for p in [*picked, *spread]:
+        junctions = _junctions(p, net)
+        key = (p.entry, p.exit, tuple(j.id for j in junctions))
+        if key in seen:
+            continue
+        seen.add(key)
+        entry, exit_ = net.nodes[p.entry], net.nodes[p.exit]
+        roads = list(dict.fromkeys(s.edge.road for s in p.steps))
+        via = tuple(_nav_waypoints(entry, junctions, exit_))
+        if not via:
+            continue
+        hints.append((via, {"entry": entry.name, "exit": exit_.name, "roads": roads, "engine_fare": p.fare}))
+        if len(hints) >= n:
+            break
+    return hints
+
+
+def _google_labels(candidates, budget):
+    """(予算内で最速, いちばん安い, お得) の添字。お得 = 最安の候補より 1 分早く着くのにかかる金額が最小。"""
+    known = [i for i, c in enumerate(candidates) if c.fare is not None]
+    best = next((i for i in known if candidates[i].fare <= budget), None)
+    cheapest = min(known, key=lambda i: (candidates[i].fare, candidates[i].seconds), default=None)
+    balance = None
+    if best is not None and cheapest is not None and best != cheapest:
+        base = candidates[cheapest]
+
+        def cost_per_minute(i):
+            saved = float(base.seconds - candidates[i].seconds) / 60
+            return float(candidates[i].fare - base.fare) / saved if saved >= MIN_SAVING else None
+
+        middle = [i for i in known if i not in (best, cheapest) and candidates[i].fare <= budget
+                  and cost_per_minute(i) is not None]
+        balance = min(middle, key=cost_per_minute, default=None)
+    return best, cheapest, balance
+
+
+_google_quota = {"day": None, "used": 0}
+_google_quota_lock = threading.Lock()
+
+
+def google_quota_available() -> bool:
+    """Google を使う検索の回数を数え、今日の上限内なら True（API の利用料金の使いすぎを防ぐ）。"""
+    limit = settings.GOOGLE_ROUTES_DAILY_SEARCHES
+    if limit <= 0:
+        return True
+    today = datetime.now(ZoneInfo("Asia/Tokyo")).date()
+    with _google_quota_lock:
+        if _google_quota["day"] != today:
+            _google_quota.update(day=today, used=0)
+        if _google_quota["used"] >= limit:
+            return False
+        _google_quota["used"] += 1
+        return True
+
+
+def _google_search(search_input, o, d, depart, hints_for):
+    jst = ZoneInfo("Asia/Tokyo")
+    now = datetime.now(jst)
+    departure_time = None
+    if depart is not None:
+        depart = depart.astimezone(jst) if depart.tzinfo else depart.replace(tzinfo=jst)
+        if depart <= now - timedelta(minutes=10):
+            return JsonResponse({"error": "今すぐ、または未来の出発日時を指定してください。"}, status=400)
+        # 少し前の時刻（フォームを開いたままだった場合など）は「今すぐ」として扱う。
+        departure_time = depart.isoformat() if depart > now else None
+        depart = max(depart, now.replace(second=0, microsecond=0))
+    else:
+        depart = now.replace(second=0, microsecond=0)
+    budget = search_input["budget"]
+    try:
+        hints = hints_for(depart.replace(tzinfo=None))
+    except (ValueError, TravelTimeError):
+        hints = []  # エンジンの案が作れなくても、Google 自身の候補は出す。
+    try:
+        candidates, low_cost_search_failed = google_routes.search_candidates(
+            settings.GOOGLE_ROUTES_API_KEY, o, d, departure_time, hints=hints,
+        )
+    except google_routes.GoogleRoutesError:
+        return JsonResponse({"error": "Google の経路を取得できませんでした。時間をおいてお試しください。"}, status=502)
+
+    def describe(candidate):
+        hint = candidate.hint
+        if not hint:
+            return candidate.description
+        return f"{hint['entry']} → {hint['exit']}（{'・'.join(hint['roads'])}）"
+
+    routes = [{
+        "description": describe(candidate),
+        "source": "ic" if candidate.via else "google",
+        "minutes": round(float(candidate.seconds / 60), 1),
+        "arrive": (depart + timedelta(seconds=float(candidate.seconds))).strftime("%H:%M"),
+        "distance_km": round(candidate.distance / 1000, 1),
+        "fare": float(candidate.fare) if candidate.fare is not None else None,
+        "within_budget": candidate.fare is not None and candidate.fare <= budget,
+        "nav": _nav_links([o, *candidate.via, d]) if candidate.via else None,
+    } for candidate in candidates]
+    best_index, cheapest_index, balance_index = _google_labels(candidates, budget)
+    response = JsonResponse({
+        **search_input, "depart": depart.strftime("%Y-%m-%d %H:%M"), "provider": "google_routes",
+        "routes": routes, "best": routes[best_index] if best_index is not None else None,
+        "cheapest_index": cheapest_index, "balance_index": balance_index,
+        "low_cost_search_failed": low_cost_search_failed,
+        "nav": _nav_links([o, d]),
+    })
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def _local_times_with_fallback(net, o, d):
+    provider = get_provider()
+    try:
+        return provider, None, local_times(provider, net, o, d)
+    except TravelTimeError as exc:
+        # ルート検索エンジンに接続できないときは概算で答える（画面に理由を出す）
+        provider = EstimateProvider()
+        return provider, f"{exc}。一般道の所要時間は概算に切り替えました。", local_times(provider, net, o, d)
+
+
 @require_GET
 @limited
 def api_search(request):
     try:
-        o_name, *o = _point(request.GET.get("origin", "yokohama"))
-        d_name, *d = _point(request.GET.get("dest", "shinjuku"))
-        depart = datetime.fromisoformat(request.GET.get("depart") or datetime.now().strftime("%Y-%m-%dT%H:%M"))
+        origin = request.GET.get("origin", "yokohama").strip()
+        dest = request.GET.get("dest", "shinjuku").strip()
+        o_name, *o = _point(origin)
+        d_name, *d = _point(dest)
+        scheduled = request.GET.get("depart")
+        depart = datetime.fromisoformat(scheduled) if scheduled else None
         budget = int(request.GET.get("budget", "1000"))
         if budget < 0:
             raise ValueError("予算は 0 円以上にしてください")
@@ -215,17 +369,26 @@ def api_search(request):
     except (ValueError, TypeError) as exc:
         return JsonResponse({"error": str(exc) or "入力が正しくありません"}, status=400)
 
+    search_input = {
+        "origin": {"name": o_name, "lat": o[0], "lon": o[1]},
+        "dest": {"name": d_name, "lat": d[0], "lon": d[1]},
+        "budget": budget,
+    }
     net, tariffs, _ = demo.build()
     searcher = Searcher(net, tariffs)
-    provider = get_provider()
-    provider_note = None
-    try:
-        times = local_times(provider, net, o, d)
-    except TravelTimeError as exc:
-        # ルート検索エンジンに接続できないときは概算で答える（画面に理由を出す）
-        provider = EstimateProvider()
-        provider_note = f"{exc}。一般道の所要時間は概算に切り替えました。"
-        times = local_times(provider, net, o, d)
+    google_note = None
+    if settings.GOOGLE_ROUTES_API_KEY and not google_quota_available():
+        google_note = "今日の Google での確認回数の上限に達したため、自作エンジンの概算で表示しています。"
+    elif settings.GOOGLE_ROUTES_API_KEY:
+        def hints_for(when):
+            _, _, times = _local_times_with_fallback(net, o, d)
+            return google_hints(_search(searcher, when, times), net, budget)
+
+        return _google_search(search_input, o, d, depart, hints_for)
+
+    if depart is None:
+        depart = datetime.now().replace(second=0, microsecond=0)
+    provider, provider_note, times = _local_times_with_fallback(net, o, d)
     front = _search(searcher, depart, times)
     approximate = searcher.stats.get("approximate", False)
     best = pick(front, budget)
@@ -251,10 +414,8 @@ def api_search(request):
         return j
 
     return JsonResponse({
-        "origin": {"name": o_name, "lat": o[0], "lon": o[1]},
-        "dest": {"name": d_name, "lat": d[0], "lon": d[1]},
+        **search_input,
         "depart": depart.strftime("%Y-%m-%d %H:%M"),
-        "budget": budget,
         "best": plan(best),
         "options": [plan(p, label) for label, p in choose_options(front, budget)],
         "local_only": plan(next(p for p in front if p.entry is None), "一般道だけ"),
@@ -262,6 +423,7 @@ def api_search(request):
         "shift": shift,
         "approximate": approximate,
         "notes": [
+            *([google_note] if google_note else []),
             *([provider_note] if provider_note else []),
             provider.description,
             "高速道路の区間の距離は IC 間の直線距離から推定した概算です（公式の距離に置き換え予定）。料金も概算です。",

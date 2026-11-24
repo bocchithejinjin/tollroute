@@ -40,9 +40,14 @@
 
   <main class="page-width">
     <p class="notice warning coverage-notice">
+      {% if google_routes %}
+      Google Routes API の試験中です。検索時に出発地・目的地の座標と出発日時を Google に送信します。ETC 料金と所要時間は推定値です。
+      <a href="https://maps.google.com/help/terms_maps/">Google マップ利用規約</a> · <a href="https://policies.google.com/privacy">Google プライバシー ポリシー</a>
+      {% else %}
       横浜〜新宿周辺のデモ道路網に対応しています。料金・所要時間は概算です。公開デモの URL は変わる場合があります。
+      {% endif %}
     </p>
-    <details class="panel trip" id="trip">
+    <details class="panel trip" id="trip"{% if google_routes %} open{% endif %}>
       <summary class="trip-summary">
         <span class="trip-points">
           <span class="trip-point"><span>出発地</span><strong id="trip-origin">横浜駅</strong></span>
@@ -52,7 +57,7 @@
         <span class="edit-label">条件を変更</span>
       </summary>
 
-      <form id="form" class="trip-form" action="{% url 'api_search' %}">
+      <form id="form" class="trip-form" action="{% url 'api_search' %}"{% if google_routes %} data-google-routes{% endif %}>
         <div class="form-grid">
           <div>
             <label for="origin-select">出発地</label>
@@ -123,7 +128,7 @@
           <ul id="candidates" class="candidates"></ul>
         </div>
       </details>
-      <details class="panel disclosure notes">
+      <details class="panel disclosure notes" id="route-notes">
         <summary>概算とナビについて</summary>
         <div class="disclosure-body">
           <ul id="notes"></ul>

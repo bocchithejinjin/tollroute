@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const form = $('form');
+const googleMode = form.hasAttribute('data-google-routes');
 const storageKey = 'tollroute.last-search.v1';
 const endpoints = ['origin', 'dest'];
 const presets = form.querySelectorAll('[data-budget]');
@@ -154,6 +155,14 @@ function routeDetails(plan) {
 }
 
 function showChosen(index) {
+  if (result.google) showGoogleChosen(index);
+  else showLocalChosen(index);
+  $('choices').querySelectorAll('button').forEach((button) => {
+    button.setAttribute('aria-pressed', String(index === Number(button.dataset.choice)));
+  });
+}
+
+function showLocalChosen(index) {
   const plan = result.plans[index];
   const google = new URL(plan.nav.google);
   if (!plan.entry) google.searchParams.set('avoid', 'tolls,highways');
@@ -182,9 +191,6 @@ function showChosen(index) {
     </div>
     <p class="muted">Google マップで経路を再検索するため、経路や高速代が変わることがあります。</p>
     ${routeDetails(plan)}`;
-  $('choices').querySelectorAll('button').forEach((button, candidateIndex) => {
-    button.setAttribute('aria-pressed', String(index === candidateIndex));
-  });
 }
 
 function relativeToFastest(plan, fastest) {
@@ -198,6 +204,8 @@ function render(data, query) {
   const plans = data.options.length ? [...data.options, data.local_only] : [data.local_only];
   result = {query, shift: data.shift, plans};
   showTrip(query, data);
+  $('all-candidates').hidden = false;
+  $('route-notes').hidden = false;
   $('approximate').hidden = !data.approximate;
   $('alternatives').hidden = plans.length === 1;
   $('baseline').textContent = `一般道だけなら 約 ${mins(data.local_only.minutes)}`;
@@ -236,6 +244,62 @@ function render(data, query) {
   $('notes').innerHTML = data.notes.map((note) => `<li>${esc(note)}</li>`).join('');
 }
 
+function googleFareStatus(route) {
+  if (route.fare === null) return '料金不明';
+  return route.within_budget ? '予算内' : '予算超過';
+}
+
+function showGoogleChosen(index) {
+  const route = result.plans[index];
+  const best = index >= 0 && index === result.bestIndex;
+  const cheapest = index === result.cheapestIndex;
+  const balanced = index === result.balanceIndex;
+  const fastest = result.plans[result.bestIndex];
+  const title = best ? '予算内で最速の候補' : cheapest ? '安さ重視の候補' :
+    balanced ? '速さと安さのバランス（お得）' : route ? googleFareStatus(route) :
+    result.plans.length ? '予算内と確認できた候補はありません' : 'ルート候補が見つかりませんでした';
+  const google = new URL(route?.nav?.google ?? result.nav.google);
+  if (route?.fare === 0) google.searchParams.set('avoid', 'tolls');
+  const difference = !best && (cheapest || balanced) && fastest ? relativeToFastest(route, fastest) : '';
+  $('chosen').innerHTML = `
+    ${route ? `<p class="chosen-tag">${best ? 'おすすめ' : '選択中の候補'}</p>` : ''}
+    <h2 id="chosen-title" tabindex="-1">${title}</h2>
+    ${route ? `
+      <dl class="metrics">
+        <div><dt>所要時間</dt><dd class="big">${minsHtml(route.minutes)}</dd>
+          <dd class="sub"><span class="num">${esc(route.arrive)}</span> ごろ着</dd></div>
+        <div><dt>ETC 推定料金</dt><dd class="big">${route.fare === null ? '不明' : yenHtml(route.fare)}</dd></div>
+      </dl>
+      <p class="route-line"><strong>${esc(route.description)}</strong> · ${esc(route.distance_km)} km</p>
+      ${difference ? `<p class="route-saving">${difference}</p>` : ''}
+      ${cheapest && !route.within_budget ? '<p class="chosen-reason">この候補も予算を超えています。</p>' : ''}` : ''}
+    <div class="nav-actions">
+      <a class="button primary" href="${esc(google.href)}" target="_blank" rel="noopener noreferrer">Google マップで経路を再検索</a>
+    </div>
+    <p class="muted">Google マップで再検索すると、経路や高速代が変わることがあります。</p>
+    ${result.lowCostSearchFailed ? '<p class="muted">有料道路を避ける候補を取得できませんでした。</p>' : ''}
+    <p class="muted">経路・推定料金の提供元 <span translate="no">Google Maps</span></p>`;
+}
+
+function renderGoogle(data, query) {
+  const plans = data.routes;
+  const bestIndex = plans.findIndex((route) => route.within_budget);
+  const cheapestIndex = data.cheapest_index;
+  const balanceIndex = data.balance_index;
+  result = {google: true, plans, bestIndex, cheapestIndex, balanceIndex, nav: data.nav, lowCostSearchFailed: data.low_cost_search_failed};
+  showTrip(query, data);
+  for (const id of ['approximate', 'shift', 'all-candidates', 'route-notes']) $(id).hidden = true;
+  $('alternatives').hidden = plans.length === 0 || (plans.length === 1 && bestIndex === 0);
+  $('baseline').textContent = 'Google の候補と、乗る・降りる IC を変えた案を、Google の所要時間・ETC 推定料金で比べています（所要時間順）。';
+  $('choices').innerHTML = plans.map((route, index) => `
+    <button class="choice" type="button" data-choice="${index}">
+      <strong>${index === bestIndex ? '予算内で最速' : index === cheapestIndex ? '安さ重視' : index === balanceIndex ? '速さと安さのバランス' : googleFareStatus(route)}</strong>
+      <span>${minsHtml(route.minutes)} · ${route.fare === null ? '料金不明' : yenHtml(route.fare)}</span>
+      <small>${esc(route.description)} · ${esc(route.distance_km)} km${index === cheapestIndex && !route.within_budget ? ' · 予算超過' : ''}</small>
+    </button>`).join('');
+  showChosen(bestIndex);
+}
+
 async function search(query, {interactive = false} = {}) {
   activeRequest?.abort();
   const request = new AbortController();
@@ -249,19 +313,23 @@ async function search(query, {interactive = false} = {}) {
   const url = new URL(form.action);
   const {origin, dest, depart, budget} = query;
   url.search = new URLSearchParams({origin, dest, depart, budget});
+  if (googleMode && query.now) url.searchParams.delete('depart');
   try {
     const response = await fetch(url, {signal: request.signal, mode: 'same-origin', cache: 'no-store'});
     const data = await response.json();
     if (request.signal.aborted) return;
     if (!response.ok) throw new Error(data.error || '条件を確認して、もう一度お試しください。');
-    render(data, query);
+    const fromGoogle = data.provider === 'google_routes';
+    if (fromGoogle) renderGoogle(data, query);
+    else render(data, query);
     if (interactive) {
       remember(query);
       $('trip').open = false;
     }
     $('results').hidden = false;
     $('status').classList.add('visually-hidden');
-    $('status').textContent = data.approximate ? '近似のルートが見つかりました。' : 'ルートが見つかりました。';
+    $('status').textContent = fromGoogle ? '検索が完了しました。' :
+      data.approximate ? '近似のルートが見つかりました。' : 'ルートが見つかりました。';
     if (interactive) $('chosen-title').focus();
   } catch (error) {
     if (request.signal.aborted) return;
@@ -344,4 +412,5 @@ $('apply-shift').addEventListener('click', () => {
 
 loadPrevious();
 syncPresets();
-search(formQuery());
+if (googleMode) showTrip(formQuery());
+else search(formQuery());
