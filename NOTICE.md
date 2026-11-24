@@ -31,6 +31,14 @@ NEXCO の休日割引の適用除外日（`engine/calendar.py`）は、NEXCO 各
 
 料金エンジンの料金表・割引の条件は、NEXCO 各社・首都高速道路株式会社・国土交通省などの公式資料をもとに実装しています。各数値の出典（URL・確認日）は [docs/research-fares.md](docs/research-fares.md) にまとめています。料金は推定値であり、公式の料金ではありません。
 
+### `routes/census_speeds.json`（国土交通省「道路交通センサス」、PDL1.0）
+
+一般道の所要時間の見積もりに使う、地域別の平均旅行速度です。
+
+- 出典: 「令和3年度 全国道路・街路交通情勢調査 一般交通量調査 集計表」5. 旅行速度整理表（都道府県別道路種別別）（国土交通省） https://www.mlit.go.jp/road/census/r3/
+- 加工の内容: CSV（CP932）から「一般道路計」の行の、混雑時（朝夕）と非混雑時（昼間）の旅行速度の「合計」の列を取り出して JSON にした（`tools/update_census_speeds.py`）。上の資料を加工して作成したもので、国土交通省が作成したものではありません。
+- ライセンス: [公共データ利用規約（第1.0版）（PDL1.0）](https://www.digital.go.jp/resources/open_data/public_data_license_v1.0)（[国土交通省ウェブサイトの利用条件](https://www.mlit.go.jp/link.html)）
+
 ## リポジトリに含まれないデータ（各自で取得）
 
 ### jageocoder 住所データベース（街区レベル）

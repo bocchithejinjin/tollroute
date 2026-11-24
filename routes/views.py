@@ -83,11 +83,15 @@ def _point(value: str):
 MAX_CANDIDATES = 15  # 乗る IC・降りる IC の候補数（外部 API を使うときの問い合わせ回数を抑える）
 
 
-def local_times(provider, net, o, d):
+def local_times(provider, net, o, d, when=None):
     """一般道の所要時間をまとめて求める（出発地 → 近い IC、近い IC → 目的地、一般道だけ）。
 
+    when は出発日時（時間帯で一般道の速さが変わる。目的地側の区間は、到着ごろの時間帯で見積もる）。
     出発時刻をずらして何度も検索するときも、同じ結果を使い回す（問い合わせを 1 回にする）。
     """
+    if when is not None and hasattr(provider, "at"):
+        # 目的地側の区間に入るころの時刻（直線距離 × 1.3 を時速 30km で走るとした目安）
+        provider.at(when, when + timedelta(minutes=demo.km_between(o, d) * 1.3 / 30 * 60))
     pos = lambda x: (x.lat, x.lon)
     ent = sorted((x for x in net.nodes.values() if x.can_enter), key=lambda x: demo.km_between(o, pos(x)))[:MAX_CANDIDATES]
     ext = sorted((x for x in net.nodes.values() if x.can_exit), key=lambda x: demo.km_between(pos(x), d))[:MAX_CANDIDATES]
@@ -395,14 +399,14 @@ def _google_search(search_input, o, d, depart, hints_for):
     return response
 
 
-def _local_times_with_fallback(net, o, d):
+def _local_times_with_fallback(net, o, d, when=None):
     provider = get_provider()
     try:
-        return provider, None, local_times(provider, net, o, d)
+        return provider, None, local_times(provider, net, o, d, when)
     except TravelTimeError as exc:
         # ルート検索エンジンに接続できないときは概算で答える（画面に理由を出す）
         provider = EstimateProvider()
-        return provider, f"{exc}。一般道の所要時間は概算に切り替えました。", local_times(provider, net, o, d)
+        return provider, f"{exc}。一般道の所要時間は概算に切り替えました。", local_times(provider, net, o, d, when)
 
 
 @require_GET
@@ -443,7 +447,7 @@ def api_search(request):
             # 範囲外なら ValueError になり、Google 自身の候補だけで答える
             check_coverage(net, o, "出発地")
             check_coverage(net, d, "目的地")
-            provider, _, times = _local_times_with_fallback(net, o, d)
+            provider, _, times = _local_times_with_fallback(net, o, d, when)
             return google_hints(_search(searcher, when, times), net, budget, when, provider)
 
         response = _google_search(search_input, o, d, depart, hints_for)
@@ -456,7 +460,7 @@ def api_search(request):
     try:
         check_coverage(net, o, "出発地")
         check_coverage(net, d, "目的地")
-        provider, provider_note, times = _local_times_with_fallback(net, o, d)
+        provider, provider_note, times = _local_times_with_fallback(net, o, d, depart)
         front = _search(searcher, depart, times)
     except OverflowError:
         return JsonResponse({"error": "出発日時を確認してください"}, status=400)
