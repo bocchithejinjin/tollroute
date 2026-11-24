@@ -44,7 +44,10 @@ def _google_routes_api_key() -> str:
         return os.environ["GOOGLE_ROUTES_API_KEY"].strip()
     path = os.environ.get("GOOGLE_ROUTES_API_KEY_FILE", "").strip()
     if path and Path(path).is_file():
-        return Path(path).read_text(encoding="utf-8").strip()
+        key = Path(path).read_text(encoding="utf-8").strip()
+        # Windows の DPAPI で暗号化したファイル（ConvertFrom-SecureString の出力）はここでは読めない
+        if not key.lower().startswith("01000000d08c9ddf"):
+            return key
     return ""
 
 

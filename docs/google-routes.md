@@ -28,8 +28,16 @@ Google 自身が返す候補（通常の別ルート 2〜3 本、有料道路を
 - 八王子IC→永福の案は、エンジンでは 1,300 円だった。Google の 630 円は中央道の 630 円上限によるもので、エンジンは上限に未対応（別 PR で対応）。
 
 ## 有効にする方法
-- キーは `data/google_routes_demo_key`（git 管理外）。`compose.yaml` の `web` は `GOOGLE_ROUTES_API_KEY_FILE` でこのファイルを指しており、**ファイルがあればこのモードになる**。環境変数 `GOOGLE_ROUTES_API_KEY` でも指定できる。
-- 動作確認: `GOOGLE_ROUTES_API_KEY_FILE=data/google_routes_demo_key python tools/probe_google_routes.py --budget 1000`
+- 環境変数 `GOOGLE_ROUTES_API_KEY` にキーを入れて `web` を起動する（`compose.yaml` が `web` に渡す）。平文のキーのファイルを `GOOGLE_ROUTES_API_KEY_FILE` で指定してもよい。どちらもなければ自作エンジンだけで動く。
+- 所有者の PC では、キーは `data/google_routes_demo_key`（git 管理外）に **Windows の DPAPI で暗号化**して保存している（コンテナからは読めない）。起動時に復号して渡す:
+  ```powershell
+  $raw = (Get-Content data\google_routes_demo_key -Raw).Trim()
+  $env:GOOGLE_ROUTES_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
+      [Runtime.InteropServices.Marshal]::SecureStringToBSTR((ConvertTo-SecureString $raw)))
+  docker compose -f .devcontainer/compose.yaml up -d --force-recreate web
+  Remove-Item Env:GOOGLE_ROUTES_API_KEY
+  ```
+- 動作確認（1 検索ぶん API を呼ぶ）: `python tools/probe_google_routes.py --budget 1000`（`GOOGLE_ROUTES_API_KEY` を設定して）
 - キーは Google Cloud のコンソールで **Routes API だけに制限**し、使える IP（自宅・サーバー）も絞っておく。
 
 ## 利用料金と上限
